@@ -1,0 +1,713 @@
+/* YouTube Transcript Pro - Content Script Styling */
+
+/* Injected Action Buttons Container in YouTube Buttons Bar */
+.ytp-button-container {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex-shrink: 0 !important;
+  white-space: nowrap !important;
+  height: 36px !important;
+  max-height: 36px !important;
+  margin-right: 8px !important;
+  vertical-align: middle !important;
+  box-sizing: border-box !important;
+  z-index: 10 !important;
+}
+
+/* Injected Action Buttons in YouTube Buttons Bar */
+.ytp-copy-now-btn,
+.ytp-transcript-btn {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: center !important;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+  box-sizing: border-box !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  max-height: 36px !important;
+  padding: 0 14px !important;
+  border-radius: 18px !important;
+  border: none !important;
+  cursor: pointer !important;
+  font-family: "Roboto", "Segoe UI", Arial, sans-serif !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  line-height: 36px !important;
+  vertical-align: middle !important;
+  user-select: none !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.ytp-copy-now-btn {
+  background: linear-gradient(135deg, #10b981, #059669) !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3) !important;
+}
+
+.ytp-copy-now-btn:hover {
+  background: linear-gradient(135deg, #34d399, #10b981) !important;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.45) !important;
+  transform: translateY(-1px) !important;
+}
+
+.ytp-copy-now-btn:active {
+  transform: scale(0.97) !important;
+}
+
+.ytp-copy-now-btn.ytp-copying {
+  background: linear-gradient(135deg, #6b7280, #4b5563) !important;
+  box-shadow: none !important;
+  cursor: wait !important;
+}
+
+.ytp-copy-now-btn.ytp-copied {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8) !important;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.45) !important;
+}
+
+.ytp-transcript-btn {
+  background: linear-gradient(135deg, #eb2026, #c41419) !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(235, 32, 38, 0.3) !important;
+}
+
+.ytp-transcript-btn:hover {
+  background: linear-gradient(135deg, #ff3338, #d4171d) !important;
+  box-shadow: 0 4px 14px rgba(235, 32, 38, 0.45) !important;
+  transform: translateY(-1px) !important;
+}
+
+.ytp-transcript-btn:active {
+  transform: scale(0.97) !important;
+}
+
+.ytp-copy-now-btn svg,
+.ytp-transcript-btn svg {
+  width: 15px !important;
+  height: 15px !important;
+  min-width: 15px !important;
+  min-height: 15px !important;
+  max-width: 15px !important;
+  max-height: 15px !important;
+  fill: currentColor !important;
+  flex-shrink: 0 !important;
+  display: inline-block !important;
+  vertical-align: middle !important;
+  margin-right: 6px !important;
+  margin-left: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+.ytp-btn-text {
+  display: inline-block !important;
+  white-space: nowrap !important;
+  line-height: 1 !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  vertical-align: middle !important;
+  letter-spacing: 0.2px !important;
+}
+
+/* ========================================================
+   Video Thumbnail Compact 1-Click Copy Badge (Hover-Only)
+   ======================================================== */
+.ytp-card-hover-btn {
+  position: absolute !important;
+  top: 8px !important;
+  left: 8px !important;
+  z-index: 999999 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  background: rgba(15, 15, 15, 0.88) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.22) !important;
+  color: #ffffff !important;
+  font-family: "Roboto", "YouTube Sans", -apple-system, sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  line-height: 1 !important;
+  height: 25px !important;
+  padding: 0 8px 0 6px !important;
+  border-radius: 6px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6) !important;
+  cursor: pointer !important;
+  user-select: none !important;
+  white-space: nowrap !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  transform: translateY(-2px) scale(0.96) !important;
+  transition: opacity 0.18s ease, transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+.ytp-card-hover-btn:hover {
+  background: rgba(24, 24, 27, 0.96) !important;
+  border-color: rgba(235, 32, 38, 0.6) !important;
+  box-shadow: 0 4px 14px rgba(235, 32, 38, 0.35), 0 2px 6px rgba(0, 0, 0, 0.5) !important;
+  color: #ffffff !important;
+  transform: translateY(0) scale(1.04) !important;
+}
+
+.ytp-card-hover-btn svg.ytp-cc-icon {
+  width: 14px !important;
+  height: 14px !important;
+  fill: #eb2026 !important;
+  transition: fill 0.15s ease !important;
+  flex-shrink: 0 !important;
+}
+
+.ytp-card-hover-btn:hover svg.ytp-cc-icon {
+  fill: #ff3338 !important;
+}
+
+.ytp-card-hover-btn.ytp-card-copying {
+  background: rgba(24, 24, 27, 0.95) !important;
+  border-color: #3b82f6 !important;
+  color: #93c5fd !important;
+}
+
+.ytp-card-hover-btn.ytp-card-copying svg.ytp-cc-icon {
+  fill: #60a5fa !important;
+}
+
+.ytp-card-hover-btn.ytp-card-copied {
+  background: rgba(16, 185, 129, 0.95) !important;
+  border-color: #10b981 !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4) !important;
+}
+
+.ytp-card-hover-btn.ytp-card-copied svg.ytp-cc-icon {
+  fill: #ffffff !important;
+}
+
+.ytp-card-hover-btn.ytp-card-error {
+  background: rgba(239, 68, 68, 0.92) !important;
+  border-color: #ef4444 !important;
+  color: #ffffff !important;
+}
+
+.ytp-card-hover-btn.ytp-card-error svg.ytp-cc-icon {
+  fill: #ffffff !important;
+}
+
+/* Show ONLY when user hovers on the video thumbnail or card */
+ytd-thumbnail:hover .ytp-card-hover-btn,
+a#thumbnail:hover .ytp-card-hover-btn,
+ytd-rich-item-renderer:hover .ytp-card-hover-btn,
+ytd-video-renderer:hover .ytp-card-hover-btn,
+ytd-grid-video-renderer:hover .ytp-card-hover-btn,
+ytd-compact-video-renderer:hover .ytp-card-hover-btn,
+ytd-reel-item-renderer:hover .ytp-card-hover-btn,
+a[href*="watch?v="]:hover .ytp-card-hover-btn,
+a[href*="/shorts/"]:hover .ytp-card-hover-btn,
+.ytp-card-hover-btn.ytp-card-show,
+.ytp-card-hover-btn.ytp-card-copying,
+.ytp-card-hover-btn.ytp-card-copied,
+.ytp-card-hover-btn.ytp-card-error {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  transform: translateY(0) scale(1) !important;
+}
+
+.ytp-card-hover-btn:hover {
+  background: #10b981 !important;
+  color: #ffffff !important;
+  border-color: #10b981 !important;
+  box-shadow: 0 3px 10px rgba(16, 185, 129, 0.6) !important;
+  transform: scale(1.02) !important;
+}
+
+.ytp-card-hover-btn:active {
+  transform: scale(0.96) !important;
+}
+
+.ytp-card-hover-btn svg {
+  width: 12px !important;
+  height: 12px !important;
+  fill: currentColor !important;
+  flex-shrink: 0 !important;
+  display: inline-block !important;
+  vertical-align: middle !important;
+}
+
+.ytp-card-hover-btn.ytp-card-copying {
+  background: #374151 !important;
+  color: #9ca3af !important;
+  border-color: #4b5563 !important;
+  cursor: wait !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+}
+
+.ytp-card-hover-btn.ytp-card-copied {
+  background: #2563eb !important;
+  color: #ffffff !important;
+  border-color: #2563eb !important;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.7) !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+}
+
+.ytp-card-hover-btn.ytp-card-error {
+  background: #dc2626 !important;
+  color: #ffffff !important;
+  border-color: #dc2626 !important;
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.7) !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+}
+
+/* Floating Fallback Button (always visible on screen) */
+.ytp-floating-trigger {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483640;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(26, 26, 36, 0.92);
+  color: #fff;
+  border: 1px solid rgba(235, 32, 38, 0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 10px 18px;
+  border-radius: 24px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 0 12px rgba(235, 32, 38, 0.25);
+  cursor: pointer;
+  font-family: "Roboto", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.25s ease;
+}
+
+.ytp-floating-trigger:hover {
+  background: #eb2026;
+  border-color: #eb2026;
+  box-shadow: 0 8px 30px rgba(235, 32, 38, 0.6);
+  transform: translateY(-2px);
+}
+
+.ytp-floating-trigger svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+/* Main Floating Modal / Drawer */
+.ytp-panel-overlay {
+  position: fixed;
+  top: 60px;
+  right: 24px;
+  width: 440px;
+  max-width: calc(100vw - 48px);
+  height: calc(100vh - 90px);
+  max-height: 820px;
+  background: rgba(18, 18, 24, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7), 0 0 20px rgba(235, 32, 38, 0.2);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  display: flex;
+  flex-direction: column;
+  z-index: 2147483645;
+  color: #f1f1f1;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  animation: ytpPanelSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+@keyframes ytpPanelSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Panel Header */
+.ytp-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.ytp-panel-title-area {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ytp-panel-logo {
+  width: 28px;
+  height: 28px;
+  background: #eb2026;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ytp-panel-logo svg {
+  width: 16px;
+  height: 16px;
+  fill: #fff;
+}
+
+.ytp-panel-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.2px;
+}
+
+.ytp-panel-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  background: rgba(235, 32, 38, 0.2);
+  color: #ff4d4f;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid rgba(235, 32, 38, 0.3);
+}
+
+.ytp-close-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 20px;
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.ytp-close-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+/* Panel Controls & Selectors */
+.ytp-panel-controls {
+  padding: 12px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ytp-lang-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ytp-lang-label {
+  font-size: 12px;
+  color: #aaa;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.ytp-lang-select {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ytp-lang-select:focus {
+  border-color: #eb2026;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.ytp-lang-select option {
+  background: #1a1a24;
+  color: #fff;
+}
+
+/* Action Buttons Bar */
+.ytp-action-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.ytp-btn-copy-primary {
+  flex: 1.4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #eb2026, #c41419);
+  color: #fff;
+  border: none;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(235, 32, 38, 0.3);
+  transition: all 0.2s;
+}
+
+.ytp-btn-copy-primary:hover {
+  background: linear-gradient(135deg, #ff3338, #d4171d);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(235, 32, 38, 0.45);
+}
+
+.ytp-btn-secondary {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #e0e0e0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 9px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ytp-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.ytp-btn-icon {
+  width: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  color: #e0e0e0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ytp-btn-icon:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+/* Search bar */
+.ytp-search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.ytp-search-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 7px 12px 7px 32px;
+  color: #fff;
+  font-size: 12px;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.ytp-search-input:focus {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(235, 32, 38, 0.5);
+}
+
+.ytp-search-icon {
+  position: absolute;
+  left: 10px;
+  width: 14px;
+  height: 14px;
+  fill: #888;
+  pointer-events: none;
+}
+
+/* Transcript Body List */
+.ytp-transcript-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+  scroll-behavior: smooth;
+}
+
+.ytp-transcript-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ytp-transcript-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+
+.ytp-transcript-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Individual Segment */
+.ytp-segment {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  transition: background 0.15s ease;
+  margin-bottom: 2px;
+}
+
+.ytp-segment:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ytp-segment.ytp-active-line {
+  background: rgba(235, 32, 38, 0.15);
+  border-left: 3px solid #eb2026;
+}
+
+.ytp-timestamp-pill {
+  flex-shrink: 0;
+  background: rgba(235, 32, 38, 0.12);
+  color: #ff6b6b;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 5px;
+  border: 1px solid rgba(235, 32, 38, 0.25);
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.ytp-timestamp-pill:hover {
+  background: #eb2026;
+  color: #fff;
+  transform: scale(1.04);
+}
+
+.ytp-segment-text {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #d1d1d8;
+  word-break: break-word;
+}
+
+.ytp-segment-text mark {
+  background: rgba(255, 215, 0, 0.35);
+  color: #fff;
+  padding: 0 2px;
+  border-radius: 3px;
+}
+
+/* Empty or Loading State */
+.ytp-state-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+  padding: 20px;
+  color: #aaa;
+}
+
+.ytp-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top-color: #eb2026;
+  border-radius: 50%;
+  animation: ytpSpin 0.8s linear infinite;
+  margin-bottom: 16px;
+}
+
+@keyframes ytpSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* Panel Footer */
+.ytp-panel-footer {
+  padding: 10px 18px;
+  background: rgba(0, 0, 0, 0.3);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: #777;
+}
+
+.ytp-stats {
+  display: flex;
+  gap: 12px;
+}
+
+/* Toast Notification */
+.ytp-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: #11141d;
+  color: #fff;
+  border: 1px solid rgba(235, 32, 38, 0.5);
+  padding: 10px 22px;
+  border-radius: 30px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 16px rgba(235, 32, 38, 0.4);
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ytp-toast.ytp-toast-show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}

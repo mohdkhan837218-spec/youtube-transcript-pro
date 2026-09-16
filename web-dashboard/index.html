@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube Transcript Pro — Web Studio & Bulk Extractor</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-wrapper">
+    <!-- Navbar -->
+    <header class="navbar">
+      <div class="nav-brand">
+        <div class="logo-box">
+          <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+        </div>
+        <div>
+          <h1 class="logo-title">YouTube Transcript <span class="badge-pro">PRO</span></h1>
+          <p class="logo-subtitle">1-Click Multi-Language Transcript & Bulk Extractor</p>
+        </div>
+      </div>
+
+      <!-- Mode Switcher Tabs -->
+      <div class="mode-tabs">
+        <button id="tab-single-mode" class="mode-tab active">
+          <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
+          <span>Single Video Studio</span>
+        </button>
+        <button id="tab-bulk-mode" class="mode-tab">
+          <svg viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/></svg>
+          <span>Bulk Video Extractor</span>
+          <span class="bulk-chip">Multi-Link</span>
+        </button>
+      </div>
+
+      <div class="nav-badges">
+        <span class="pill-badge">🇮🇳 Hindi</span>
+        <span class="pill-badge">🇬🇧 English</span>
+        <span class="pill-badge">🌐 100+ Languages</span>
+      </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="main-content">
+      
+      <!-- ========================================================
+           SECTION 1: SINGLE VIDEO STUDIO
+           ======================================================== -->
+      <section id="section-single" class="tab-content active">
+        <!-- Input Card -->
+        <div class="url-card">
+          <label class="input-label" for="yt-url-input">Enter YouTube Video URL or ID:</label>
+          <div class="input-group">
+            <div class="input-icon">
+              <svg viewBox="0 0 24 24"><path d="M21.58 7.19c-.23-.86-.91-1.54-1.77-1.77C18.25 5 12 5 12 5s-6.25 0-7.81.42c-.86.23-1.54.91-1.77 1.77C2 8.75 2 12 2 12s0 3.25.42 4.81c.23.86.91 1.54 1.77 1.77C5.75 19 12 19 12 19s6.25 0 7.81-.42c.86-.23 1.54-.91 1.77-1.77C22 15.25 22 12 22 12s0-3.25-.42-4.81zM10 15V9l5.2 3-5.2 3z"/></svg>
+            </div>
+            <input type="text" id="yt-url-input" class="url-input" placeholder="e.g. https://www.youtube.com/watch?v=KLo6jeXrTdw or youtu.be/..." />
+            <button id="btn-fetch" class="btn-fetch">
+              <span>Extract Transcript</span>
+              <svg viewBox="0 0 24 24"><path d="M5 13h11.86l-5.43 5.43 1.42 1.42L21.14 12l-8.29-7.85-1.42 1.42L16.86 11H5v2z"/></svg>
+            </button>
+          </div>
+
+          <!-- Quick Samples -->
+          <div class="sample-links">
+            <span class="sample-label">Quick Test Examples:</span>
+            <button class="sample-btn" data-url="https://www.youtube.com/watch?v=KLo6jeXrTdw">गांव में रहकर करोड़पति कैसे बनें? (Hindi)</button>
+            <button class="sample-btn" data-url="https://www.youtube.com/watch?v=-_gdh8aTtBA">Tijori Vastu Tips (Shorts)</button>
+            <button class="sample-btn" data-url="https://www.youtube.com/watch?v=kqtD5dpn9C8">Python Tutorial (English)</button>
+          </div>
+        </div>
+
+        <!-- Single Video Workspace (Split Grid) -->
+        <div id="workspace-grid" class="workspace-grid" style="display: none;">
+          <!-- Left Column: Video Preview & Details -->
+          <div class="left-col">
+            <div class="video-container">
+              <iframe id="video-frame" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+            </div>
+            
+            <div class="video-meta-card">
+              <h2 id="meta-video-title" class="meta-title">Video Title</h2>
+              <div class="meta-tags">
+                <span id="meta-video-id" class="meta-badge">ID: ...</span>
+                <span id="meta-duration" class="meta-badge">Duration: ...</span>
+                <span id="meta-author" class="meta-badge">Channel: ...</span>
+                <span id="meta-lang-detected" class="meta-badge lang-badge">Language: Auto</span>
+              </div>
+            </div>
+
+            <!-- Chrome Extension Promo Banner -->
+            <div class="extension-promo-card">
+              <div class="promo-icon">⚡</div>
+              <div class="promo-content">
+                <h3>Use on YouTube directly!</h3>
+                <p>Install the <strong>YouTube Transcript Pro</strong> extension to extract transcripts directly beneath any video or right from thumbnail hover.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Column: Interactive Transcript Studio -->
+          <div class="right-col">
+            <div class="studio-card">
+              <!-- Studio Header -->
+              <div class="studio-header">
+                <div class="controls-row">
+                  <div class="lang-selector-wrapper">
+                    <label for="select-trans-lang">Target Language:</label>
+                    <select id="select-trans-lang" class="custom-select">
+                      <option value="original">Original Language</option>
+                      <option value="hi" selected>Hindi (हिन्दी)</option>
+                      <option value="en">English</option>
+                      <option value="ur">Urdu (اردو)</option>
+                      <option value="es">Spanish (Español)</option>
+                      <option value="ar">Arabic (العربية)</option>
+                      <option value="bn">Bengali (বাংলা)</option>
+                      <option value="fr">French (Français)</option>
+                      <option value="de">German (Deutsch)</option>
+                      <option value="ru">Russian (Русский)</option>
+                      <option value="ja">Japanese (日本語)</option>
+                    </select>
+                  </div>
+
+                  <div class="format-toggle-group">
+                    <button id="btn-toggle-timestamps" class="toggle-btn active" title="Toggle timestamps">
+                      [00:00] Timestamps
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="studio-actions-bar">
+                  <button id="btn-copy-timestamps" class="action-btn btn-glow">
+                    <svg viewBox="0 0 24 24"><path d="M19 2h-4.18C14.4.84 13.3 0 12 0c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 18H5V4h2v3h10V4h2v16z"/></svg>
+                    <span>1-Click Copy (Timestamps)</span>
+                  </button>
+
+                  <button id="btn-copy-plain" class="action-btn btn-secondary">
+                    <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                    <span>Plain Text (for AI)</span>
+                  </button>
+
+                  <div class="dropdown">
+                    <button id="btn-export-dropdown" class="action-btn btn-secondary">
+                      <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                      <span>Download ▾</span>
+                    </button>
+                    <div class="dropdown-menu" id="export-menu">
+                      <button id="btn-download-txt">Text (.txt)</button>
+                      <button id="btn-download-srt">Subtitles (.srt)</button>
+                      <button id="btn-download-md">Markdown (.md)</button>
+                      <button id="btn-download-json">JSON Data (.json)</button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Search Bar -->
+                <div class="search-box">
+                  <svg class="search-icon" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 14z"/></svg>
+                  <input type="text" id="transcript-search" placeholder="Search keywords in transcript..." />
+                  <span id="search-count" class="search-count"></span>
+                </div>
+              </div>
+
+              <!-- Scrollable Segments Container -->
+              <div id="transcript-container" class="transcript-container">
+                <!-- Rendered dynamically -->
+              </div>
+
+              <!-- Footer Stats -->
+              <div class="studio-footer">
+                <div class="stats-info">
+                  <span id="stat-lines">0 lines</span> • 
+                  <span id="stat-words">0 words</span> • 
+                  <span id="stat-time">00:00</span>
+                </div>
+                <div class="hint-info">
+                  <span>💡 Click any timestamp to jump video</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Welcome Placeholder (shown before fetching) -->
+        <div id="welcome-placeholder" class="welcome-card">
+          <div class="features-grid">
+            <div class="feature-item">
+              <div class="feat-icon">⚡</div>
+              <h3>1-Click Copy</h3>
+              <p>Copy entire transcripts with exact timestamps (`[01:23] ...`) or clean plain text for AI prompts.</p>
+            </div>
+            <div class="feature-item">
+              <div class="feat-icon">🌐</div>
+              <h3>Multi-Language</h3>
+              <p>Automatic subtitle extraction in Hindi (हिन्दी), English, Urdu, and 100+ translated languages.</p>
+            </div>
+            <div class="feature-item">
+              <div class="feat-icon">⏱️</div>
+              <h3>Exact Timestamps</h3>
+              <p>Interactive timestamps jump the video player directly to that moment with millisecond accuracy.</p>
+            </div>
+            <div class="feature-item">
+              <div class="feat-icon">💾</div>
+              <h3>Universal Formats</h3>
+              <p>Download your transcripts directly as formatted .txt, subtitle .srt, clean .md, or structured .json.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================================
+           SECTION 2: BULK VIDEO EXTRACTOR (MULTI-LINK)
+           ======================================================== -->
+      <section id="section-bulk" class="tab-content" style="display: none;">
+        <div class="bulk-input-card">
+          <div class="bulk-header-row">
+            <div>
+              <h2 class="bulk-title">📦 Bulk YouTube Transcript Extractor</h2>
+              <p class="bulk-subtitle">Paste multiple YouTube video or shorts links (one per line). Extract and export all transcripts at once.</p>
+            </div>
+            <div class="bulk-badge-counter" id="bulk-counter-badge">
+              <span>0 URLs Detected</span>
+            </div>
+          </div>
+
+          <textarea id="bulk-urls-input" class="bulk-textarea" rows="6" placeholder="Paste YouTube links here (one URL per line, comma or space separated):
+https://www.youtube.com/watch?v=KLo6jeXrTdw
+https://youtu.be/-_gdh8aTtBA
+https://www.youtube.com/watch?v=kqtD5dpn9C8"></textarea>
+
+          <div class="bulk-controls-bar">
+            <div class="bulk-left-controls">
+              <button id="btn-sample-bulk" class="sample-btn">Load Sample 3 Videos (Hindi & English)</button>
+              
+              <div class="bulk-opt-group">
+                <label for="bulk-lang-select">Language:</label>
+                <select id="bulk-lang-select" class="custom-select-sm">
+                  <option value="original">Original Language</option>
+                  <option value="hi" selected>Hindi (हिन्दी)</option>
+                  <option value="en">English</option>
+                  <option value="ur">Urdu (اردو)</option>
+                  <option value="es">Spanish</option>
+                  <option value="ar">Arabic</option>
+                </select>
+              </div>
+
+              <div class="bulk-opt-group">
+                <label for="bulk-format-select">Format:</label>
+                <select id="bulk-format-select" class="custom-select-sm">
+                  <option value="timestamps" selected>[00:00] With Timestamps</option>
+                  <option value="plain">Plain Text (for AI)</option>
+                </select>
+              </div>
+            </div>
+
+            <button id="btn-bulk-extract" class="btn-fetch btn-bulk-run">
+              <span>🚀 Extract All Transcripts</span>
+            </button>
+          </div>
+
+          <!-- Progress Bar -->
+          <div id="bulk-progress-wrap" class="bulk-progress-wrap" style="display: none;">
+            <div class="progress-info-row">
+              <span id="bulk-progress-text">Processing videos...</span>
+              <span id="bulk-progress-pct">0%</span>
+            </div>
+            <div class="progress-track">
+              <div id="bulk-progress-bar" class="progress-bar-fill" style="width: 0%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bulk Results Section -->
+        <div id="bulk-results-section" class="bulk-results-section" style="display: none;">
+          <!-- Bulk Global Actions Bar -->
+          <div class="bulk-summary-bar">
+            <div class="bulk-stats-summary" id="bulk-stats-summary">
+              Total: 0 videos • 0 transcripts extracted
+            </div>
+            <div class="bulk-global-actions">
+              <button id="btn-bulk-copy-timestamps" class="action-btn btn-glow">
+                <svg viewBox="0 0 24 24"><path d="M19 2h-4.18C14.4.84 13.3 0 12 0c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 18H5V4h2v3h10V4h2v16z"/></svg>
+                <span>📋 Copy All (Timestamps)</span>
+              </button>
+              <button id="btn-bulk-copy-plain" class="action-btn btn-secondary">
+                <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                <span>📄 Copy All (Plain)</span>
+              </button>
+              <button id="btn-bulk-download-txt" class="action-btn btn-secondary">
+                <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                <span>💾 Download Combined .TXT</span>
+              </button>
+              <button id="btn-bulk-download-json" class="action-btn btn-secondary">
+                <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                <span>💾 Export .JSON</span>
+              </button>
+              <button id="btn-bulk-clear" class="action-btn btn-secondary btn-danger">
+                <span>🗑️ Clear</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Video Cards Grid / List -->
+          <div id="bulk-cards-list" class="bulk-cards-list">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

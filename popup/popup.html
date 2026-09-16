@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube Transcript Pro</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <header class="popup-header">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+        </div>
+        <div>
+          <h1 class="brand-title">Transcript Pro</h1>
+          <span class="brand-subtitle">1-Click Multi-Language</span>
+        </div>
+      </div>
+      <span class="version-badge" id="popup-version-badge">v1.1.2</span>
+    </header>
+
+    <!-- Content Status -->
+    <div id="yt-detected-card" class="card status-card">
+      <div class="status-indicator active"></div>
+      <div class="video-info">
+        <div id="video-title" class="video-title">Checking active tab...</div>
+        <div id="video-meta" class="video-meta">YouTube Watch Page</div>
+      </div>
+    </div>
+
+    <!-- Quick Action Buttons for Active Watch Page -->
+    <div id="actions-section" class="actions-section">
+      <button id="btn-open-panel" class="btn btn-primary">
+        <svg viewBox="0 0 24 24"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>
+        <span>Open In-Player Panel</span>
+      </button>
+
+      <button id="btn-quick-timestamps" class="btn btn-secondary">
+        <svg viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+        <span>1-Click Copy Timestamps</span>
+      </button>
+
+      <button id="btn-quick-plain" class="btn btn-secondary">
+        <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+        <span>1-Click Plain Text (for AI)</span>
+      </button>
+    </div>
+
+    <!-- Quick Paste Extract Section (Available on Feed / Search / Anywhere) -->
+    <div id="paste-section" class="card paste-card">
+      <div class="paste-header">
+        <div class="paste-title-wrap">
+          <span class="paste-title">⚡ Quick Paste Extract</span>
+          <span class="paste-subtitle">(Any Video / Shorts)</span>
+        </div>
+        <button id="btn-paste-clipboard" class="btn-paste-icon" type="button" title="Paste from Clipboard">
+          📋 <span>Paste</span>
+        </button>
+      </div>
+
+      <div class="paste-input-wrap">
+        <input type="text" id="input-custom-url" placeholder="Paste YouTube link or Video ID..." autocomplete="off" spellcheck="false" />
+        <button id="btn-clear-input" class="btn-clear-input" type="button" title="Clear" style="display: none;">✕</button>
+      </div>
+
+      <!-- Action Buttons: Timestamps & Plain Text -->
+      <div class="paste-actions">
+        <button id="btn-custom-copy-ts" class="btn-action-primary" type="button" title="Copy with [MM:SS] timestamps">
+          ⚡ <span>Timestamps</span>
+        </button>
+        <button id="btn-custom-copy-plain" class="btn-action-secondary" type="button" title="Copy plain text for AI / ChatGPT">
+          📄 <span>Plain Text</span>
+        </button>
+      </div>
+
+      <!-- Live Mini Result Preview Card -->
+      <div id="paste-result-card" class="paste-result-card" style="display: none;">
+        <img id="paste-result-thumb" class="paste-result-thumb" src="" alt="Thumbnail" />
+        <div class="paste-result-details">
+          <div id="paste-result-title" class="paste-result-title"></div>
+          <div class="paste-result-meta">
+            <span id="paste-result-badge" class="result-badge"></span>
+            <span id="paste-result-dur" class="result-dur"></span>
+          </div>
+        </div>
+        <button id="btn-open-in-studio" class="btn-open-studio" type="button" title="Open in Web Studio">↗️</button>
+      </div>
+    </div>
+
+    <!-- Not on YouTube State -->
+    <div id="not-yt-section" class="card not-yt-card" style="display: none;">
+      <div class="empty-icon">📺</div>
+      <h3>Not on YouTube</h3>
+      <p>Open YouTube or paste any video link above to extract transcripts with 1 click.</p>
+      <button id="btn-open-youtube" class="btn btn-primary" style="margin-top: 10px;">Open YouTube</button>
+    </div>
+
+    <!-- Quick Settings -->
+    <div class="settings-section">
+      <div class="setting-item">
+        <label for="pref-lang">Default Language:</label>
+        <select id="pref-lang" class="setting-select">
+          <option value="hi">Hindi (हिन्दी)</option>
+          <option value="en">English</option>
+          <option value="ur">Urdu (اردو)</option>
+          <option value="default">Video Default</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="popup-footer">
+      <span>100+ Languages Supported</span>
+      <a href="../web-dashboard/index.html" target="_blank" class="web-tool-link">Web Tool ↗</a>
+    </footer>
+
+    <!-- Toast Notification -->
+    <div id="popup-toast" class="popup-toast"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
