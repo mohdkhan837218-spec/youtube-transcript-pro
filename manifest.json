@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YouTube Transcript Pro — 1-Click Multi-Language & Timestamps",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "minimum_chrome_version": "111",
   "description": "Extract YouTube video transcripts in Hindi, English, and 100+ languages in 1-click with exact timestamps and fast copy.",
   "icons": {

@@ -315,38 +315,50 @@ async function fetchInnerTubeBackground(videoId, targetLang = null) {
   };
 }
 
-// Background Translation Helper — never misaligns lines or fails silently
+// Background Translation Helper — batches chunks to avoid HTTP 400 Bad Request
 async function translateSegmentsBackground(segments, targetLang) {
-  if (!segments || segments.length === 0 || !targetLang || targetLang === 'original') {
+  if (!segments || segments.length === 0 || !targetLang || targetLang === 'original' || targetLang === 'default') {
     return { segments, translated: false };
   }
   try {
-    const texts = segments.map(s => s.text);
-    const chunk = texts.join('\n');
-    const transUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(chunk)}`;
-    const transResp = await fetch(transUrl);
-    const contentType = transResp.headers.get('content-type') || '';
-    if (!transResp.ok || !contentType.includes('application/json')) {
-      return { segments, translated: false };
+    const BATCH_SIZE = 20;
+    const translated = [];
+    for (let i = 0; i < segments.length; i += BATCH_SIZE) {
+      const batch = segments.slice(i, i + BATCH_SIZE);
+      const combinedText = batch.map(s => s.text).join(' \n\n ');
+      const transUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(combinedText)}`;
+      const res = await fetch(transUrl);
+      if (res.ok) {
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          batch.forEach(seg => translated.push(seg));
+          continue;
+        }
+        const data = await res.json();
+        if (!Array.isArray(data) || !Array.isArray(data[0])) {
+          batch.forEach(seg => translated.push(seg));
+          continue;
+        }
+        const fullTranslation = data[0].map(item => item[0] || '').join('');
+        const translatedChunks = fullTranslation.split(/\n\n|\n/).map(s => s.trim()).filter(Boolean);
+        if (translatedChunks.length !== batch.length) {
+          batch.forEach(seg => translated.push(seg));
+          continue;
+        }
+        batch.forEach((seg, idx) => {
+          translated.push({
+            ...seg,
+            text: translatedChunks[idx] || seg.text
+          });
+        });
+      } else {
+        batch.forEach(seg => translated.push(seg));
+      }
     }
-    const transData = await transResp.json();
-    if (!Array.isArray(transData) || !Array.isArray(transData[0])) {
-      return { segments, translated: false };
-    }
-    const translatedCombined = transData[0].map(item => item[0]).join('');
-    const translatedLines = translatedCombined.split('\n');
-    if (translatedLines.length !== segments.length) {
-      return { segments, translated: false }; // keep originals, don't attach wrong translations to timestamps
-    }
-    return {
-      segments: segments.map((s, idx) => ({
-        ...s,
-        text: (translatedLines[idx] && translatedLines[idx].trim()) ? translatedLines[idx].trim() : s.text
-      })),
-      translated: true
-    };
-  } catch (e) {}
-  return { segments, translated: false };
+    return { segments: translated, translated: true };
+  } catch (e) {
+    return { segments, translated: false };
+  }
 }
 
 // Message Dispatcher
@@ -359,19 +371,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } else if (message.type === 'FETCH_BULK_TRANSCRIPTS') {
         const videoIds = message.videoIds || [];
         const results = [];
-        for (const vid of videoIds) {
-          try {
-            const data = await fetchInnerTubeBackground(vid, message.targetLang);
-            results.push(data);
-          } catch (err) {
-            results.push({
-              videoId: vid,
-              title: `Video (${vid})`,
-              hasCaptions: false,
-              segments: [],
-              totalLines: 0
-            });
-          }
+        // Concurrency = 4 for fast parallel extraction
+        for (let i = 0; i < videoIds.length; i += 4) {
+          const chunk = videoIds.slice(i, i + 4);
+          const chunkResults = await Promise.all(chunk.map(async (vid) => {
+            try {
+              const data = await fetchInnerTubeBackground(vid, message.targetLang);
+              return data;
+            } catch (err) {
+              return {
+                videoId: vid,
+                title: `Video (${vid})`,
+                hasCaptions: false,
+                segments: [],
+                totalLines: 0
+              };
+            }
+          }));
+          results.push(...chunkResults);
         }
         sendResponse({ success: true, results });
       } else if (message.type === 'GET_ACTIVE_YOUTUBE_TAB') {

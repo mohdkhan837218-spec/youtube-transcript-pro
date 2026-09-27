@@ -1,6 +1,6 @@
 {
   "name": "youtube-transcript-pro",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "description": "1-Click Multi-Language YouTube Transcript & Bulk Video Extractor with Timestamps and Plain Text Copy",
   "main": "server.js",
   "scripts": {

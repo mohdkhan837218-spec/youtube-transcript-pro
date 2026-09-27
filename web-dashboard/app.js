@@ -148,10 +148,12 @@ document.addEventListener('DOMContentLoaded', () => {
     URL.revokeObjectURL(url);
   }
 
-  // Extract 11-character Video ID from any URL string
+  // Extract 11-character Video ID from any URL string or token
   function extractVideoId(text) {
     if (!text) return null;
-    const clean = text.trim();
+    let clean = text.trim();
+    // Strip leading/trailing quotes, parentheses, brackets, angle-brackets, markdown wrapper
+    clean = clean.replace(/^[<"'\(\[\{]+/, '').replace(/[>"'\)\]\},;.]+$/, '').trim();
 
     // If it's a full URL, ensure it is a YouTube domain (ignore vidiq, google, twitter, etc.)
     if (/^https?:\/\//i.test(clean)) {
@@ -322,7 +324,7 @@ document.addEventListener('DOMContentLoaded', () => {
           });
         });
 
-        if (bgResponse && bgResponse.success && bgResponse.data) {
+        if (bgResponse && bgResponse.success && bgResponse.data && bgResponse.data.hasCaptions) {
           return bgResponse.data;
         }
       } catch (err) {
@@ -330,35 +332,32 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    // TIER 2: Local Server API (http://localhost:3000)
-    try {
-      const serverUrl = `http://localhost:3000/api/transcript?videoId=${encodeURIComponent(vid)}${targetLang ? `&lang=${encodeURIComponent(targetLang)}` : ''}`;
-      const serverResp = await fetch(serverUrl);
-      if (serverResp.ok) {
-        const data = await serverResp.json();
-        if (data && !data.error) {
-          return data;
+    // TIER 2: Local Server API (Try localhost:3000, 127.0.0.1:3000, and current origin)
+    const serverBases = ['http://localhost:3000', 'http://127.0.0.1:3000'];
+    if (typeof window !== 'undefined' && window.location?.origin && !serverBases.includes(window.location.origin) && !window.location.origin.startsWith('chrome-extension://')) {
+      serverBases.unshift(window.location.origin);
+    }
+    for (const base of serverBases) {
+      try {
+        const serverUrl = `${base}/api/transcript?videoId=${encodeURIComponent(vid)}${targetLang ? `&lang=${encodeURIComponent(targetLang)}` : ''}`;
+        const serverResp = await fetch(serverUrl);
+        if (serverResp.ok) {
+          const data = await serverResp.json();
+          if (data && !data.error && data.hasCaptions) {
+            return data;
+          }
         }
-      }
-    } catch (e) {}
+      } catch (e) {}
+    }
 
-    // TIER 3: Relative API endpoint (if running from same origin)
-    try {
-      const relUrl = `/api/transcript?videoId=${encodeURIComponent(vid)}${targetLang ? `&lang=${encodeURIComponent(targetLang)}` : ''}`;
-      const relResp = await fetch(relUrl);
-      if (relResp.ok) {
-        const data = await relResp.json();
-        if (data && !data.error) {
-          return data;
-        }
-      }
-    } catch (e) {}
-
-    // TIER 4: Direct Android InnerTube API (If browser allows CORS)
+    // TIER 3: Direct Android InnerTube API (If browser allows CORS / extension page)
     try {
       const resp = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14)'
+        },
         body: JSON.stringify({
           context: { client: { clientName: 'ANDROID', clientVersion: '20.10.38' } },
           videoId: vid
@@ -367,6 +366,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (resp.ok) {
         const data = await resp.json();
+        const videoDetails = data?.videoDetails || {};
         const renderer = data?.captions?.playerCaptionsTracklistRenderer;
         const tracks = renderer?.captionTracks || [];
 
@@ -405,6 +405,49 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     } catch (e) {}
 
+    // TIER 4: Fallback to scraping YouTube watch page
+    try {
+      const pageResp = await fetch(`https://www.youtube.com/watch?v=${vid}`);
+      if (pageResp.ok) {
+        const html = await pageResp.text();
+        const tracksMatch = html.match(/"captionTracks":\s*(\[[^\]]+\])/);
+        if (tracksMatch) {
+          const rawTracks = JSON.parse(tracksMatch[1]);
+          if (Array.isArray(rawTracks) && rawTracks.length > 0) {
+            const selectedTrack = selectBestCaptionTrack(rawTracks, null, targetLang);
+            const trResp = await fetch(selectedTrack.baseUrl);
+            if (trResp.ok) {
+              const xml = await trResp.text();
+              let segments = parseTranscriptXml(xml);
+              if (targetLang && targetLang !== 'original' && targetLang !== 'default' && selectedTrack.languageCode !== targetLang && segments.length > 0) {
+                segments = await clientTranslateSegments(segments, targetLang);
+              }
+              if (segments.length > 0) {
+                return {
+                  videoId: vid,
+                  title: `YouTube Video (${vid})`,
+                  author: '',
+                  duration: '',
+                  thumbnail: `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`,
+                  hasCaptions: true,
+                  tracks: rawTracks.map((t, idx) => ({
+                    index: idx,
+                    lang: t.languageCode,
+                    name: t.name?.simpleText || t.languageCode,
+                    isAuto: t.kind === 'asr'
+                  })),
+                  selectedTrack: selectedTrack.languageCode,
+                  segments,
+                  totalLines: segments.length,
+                  totalWords: segments.reduce((acc, s) => acc + s.text.split(/\s+/).filter(Boolean).length, 0)
+                };
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {}
+
     return {
       videoId: vid,
       title: `YouTube Video (${vid})`,
@@ -427,26 +470,39 @@ document.addEventListener('DOMContentLoaded', () => {
     return `${m}:${s}`;
   }
 
+  // Batch translate segments in chunks of 20 to avoid HTTP 400 Bad Request
   async function clientTranslateSegments(segments, targetLang) {
-    if (!segments || segments.length === 0 || !targetLang || targetLang === 'original') return segments;
-    try {
-      const texts = segments.map(s => s.text);
-      const chunk = texts.join('\n');
-      const transUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(chunk)}`;
-      const resp = await fetch(transUrl);
-      if (resp.ok) {
-        const data = await resp.json();
-        const translatedCombined = (data[0] || []).map(item => item[0]).join('');
-        const translatedLines = translatedCombined.split('\n');
-        return segments.map((s, idx) => ({
-          ...s,
-          text: (translatedLines[idx] && translatedLines[idx].trim()) ? translatedLines[idx].trim() : s.text
-        }));
-      }
-    } catch (err) {
-      console.warn('Translation failed, retaining original text:', err);
+    if (!segments || segments.length === 0 || !targetLang || targetLang === 'original' || targetLang === 'default') {
+      return segments;
     }
-    return segments;
+    const CHUNK_SIZE = 20;
+    const translated = [...segments];
+
+    for (let i = 0; i < segments.length; i += CHUNK_SIZE) {
+      const slice = segments.slice(i, i + CHUNK_SIZE);
+      const textToTranslate = slice.map(s => s.text).join('\n');
+      try {
+        const transUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(textToTranslate)}`;
+        const resp = await fetch(transUrl);
+        if (resp.ok) {
+          const data = await resp.json();
+          if (Array.isArray(data) && Array.isArray(data[0])) {
+            const combined = data[0].map(item => item[0]).join('');
+            const lines = combined.split('\n');
+            if (lines.length === slice.length) {
+              for (let j = 0; j < slice.length; j++) {
+                if (lines[j] && lines[j].trim()) {
+                  translated[i + j] = { ...translated[i + j], text: lines[j].trim() };
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Batch translation warning:', err);
+      }
+    }
+    return translated;
   }
 
   // ==========================================
@@ -491,7 +547,12 @@ document.addEventListener('DOMContentLoaded', () => {
           setTimeout(() => showToast('⚠️ Translation service unavailable — original language dikhayi ja rahi hai'), 2900);
         }
       } else {
-        showToast('Is video par subtitles available nahi hain ⚠️');
+        const isExt = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id;
+        if (!isExt) {
+          showToast('⚠️ Subtitles nahi mile ya CORS blocked. Web Studio ke liye local server start karein: npm start');
+        } else {
+          showToast('Is video par subtitles available nahi hain ⚠️');
+        }
       }
     } catch (err) {
       console.error(err);
@@ -740,10 +801,43 @@ document.addEventListener('DOMContentLoaded', () => {
     bulkCounterBadge.textContent = `${ids.length} URLs Detected`;
   });
 
-  // Try the server's parallel /api/bulk-transcript endpoint (same-origin, then localhost:3000).
-  // Falls back to null so the caller can use the slower sequential per-video path.
+  // Try parallel bulk extraction via Chrome Extension background worker OR local server API
   async function tryBulkApiEndpoint(vids, targetLang) {
-    const endpoints = ['/api/bulk-transcript', 'http://localhost:3000/api/bulk-transcript'];
+    // Priority 1: Chrome Extension Background Service Worker (Instant & 100% reliable in extension)
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      try {
+        const bgRes = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({
+            type: 'FETCH_BULK_TRANSCRIPTS',
+            videoIds: vids,
+            targetLang: targetLang
+          }, (res) => {
+            if (chrome.runtime.lastError) {
+              resolve(null);
+            } else {
+              resolve(res);
+            }
+          });
+        });
+        if (bgRes && bgRes.success && Array.isArray(bgRes.results) && bgRes.results.length > 0) {
+          return bgRes.results;
+        }
+      } catch (err) {
+        console.warn('Extension bulk fetch error:', err);
+      }
+    }
+
+    // Priority 2: Local Server API endpoints
+    const endpoints = [
+      '/api/bulk-transcript',
+      'http://localhost:3000/api/bulk-transcript',
+      'http://127.0.0.1:3000/api/bulk-transcript'
+    ];
+    if (typeof window !== 'undefined' && window.location?.origin && !window.location.origin.startsWith('chrome-extension://')) {
+      const originEp = `${window.location.origin}/api/bulk-transcript`;
+      if (!endpoints.includes(originEp)) endpoints.unshift(originEp);
+    }
+
     for (const ep of endpoints) {
       try {
         const resp = await fetch(ep, {

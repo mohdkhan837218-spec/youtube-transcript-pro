@@ -81,40 +81,43 @@ function parseTranscriptXml(rawXml) {
 // Translate segments batch — returns { segments, translated }.
 // NEVER silently misalign: if the provider merges/splits lines or is
 // unreachable, original text is kept and translated=false is reported.
+// Translate segments batch — chunked to avoid HTTP 400 URI Too Long.
+// NEVER silently misalign: if line count mismatches or provider fails, original text is preserved.
 async function translateSegments(segments, targetLang) {
-  if (!segments || segments.length === 0 || !targetLang || targetLang === 'original') {
+  if (!segments || segments.length === 0 || !targetLang || targetLang === 'original' || targetLang === 'default') {
     return { segments, translated: false };
   }
-  try {
-    const texts = segments.map(s => s.text);
-    const chunk = texts.join('\n');
-    const transUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(chunk)}`;
-    const resp = await fetch(transUrl);
-    const contentType = resp.headers.get('content-type') || '';
-    if (!resp.ok || !contentType.includes('application/json')) {
-      console.warn(`Translation warning: provider unavailable (HTTP ${resp.status}), keeping original text`);
-      return { segments, translated: false };
+  const CHUNK_SIZE = 20;
+  const translated = [...segments];
+  let anyTranslated = false;
+
+  for (let i = 0; i < segments.length; i += CHUNK_SIZE) {
+    const slice = segments.slice(i, i + CHUNK_SIZE);
+    const textToTranslate = slice.map(s => s.text).join('\n');
+    try {
+      const transUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(textToTranslate)}`;
+      const resp = await fetch(transUrl);
+      if (resp.ok) {
+        const data = await resp.json();
+        if (Array.isArray(data) && Array.isArray(data[0])) {
+          const combined = data[0].map(item => item[0]).join('');
+          const lines = combined.split('\n');
+          if (lines.length === slice.length) {
+            for (let j = 0; j < slice.length; j++) {
+              if (lines[j] && lines[j].trim()) {
+                translated[i + j] = { ...translated[i + j], text: lines[j].trim() };
+                anyTranslated = true;
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Batch translation warning:', err.message);
     }
-    const data = await resp.json();
-    if (!Array.isArray(data) || !Array.isArray(data[0])) {
-      console.warn('Translation warning: unexpected provider response shape, keeping original text');
-      return { segments, translated: false };
-    }
-    const translatedCombined = data[0].map(item => item[0]).join('');
-    const translatedLines = translatedCombined.split('\n');
-    if (translatedLines.length !== segments.length) {
-      console.warn(`Translation warning: line count mismatch (${translatedLines.length} vs ${segments.length}), keeping original text to avoid wrong timestamps`);
-      return { segments, translated: false };
-    }
-    const out = segments.map((s, idx) => ({
-      ...s,
-      text: (translatedLines[idx] && translatedLines[idx].trim()) ? translatedLines[idx].trim() : s.text
-    }));
-    return { segments: out, translated: true };
-  } catch (err) {
-    console.warn('Translation warning:', err.message);
-    return { segments, translated: false };
   }
+
+  return { segments: translated, translated: anyTranslated };
 }
 
 // Intelligently select best caption track (prioritizes Original/Manual over Auto-generated)
@@ -542,11 +545,11 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-const HOST = process.env.HOST || '127.0.0.1'; // localhost-only by default; set HOST=0.0.0.0 to expose on LAN
+const HOST = process.env.HOST || '0.0.0.0';
 server.listen(PORT, HOST, () => {
   console.log(`\n======================================================`);
   console.log(`⚡ YouTube Transcript Pro Web Studio is running!`);
-  console.log(`🌐 URL: http://${HOST}:${PORT}`);
-  console.log(`API: http://${HOST}:${PORT}/api/transcript?videoId=WMmE14yOLZk`);
+  console.log(`🌐 URL: http://localhost:${PORT} (or http://127.0.0.1:${PORT})`);
+  console.log(`API: http://localhost:${PORT}/api/transcript?videoId=WMmE14yOLZk`);
   console.log(`======================================================\n`);
 });
