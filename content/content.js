@@ -192,7 +192,50 @@
     return results;
   }
 
-  // Fetch Multi-Tier Transcript (Local Server + Background Worker + Authenticated InnerTube)
+  // Ask the MAIN-world injector (page-world.js) for data — it runs inside
+  // YouTube's own page context with the user's session cookies.
+  function requestPageWorld(type, payload = {}) {
+    return new Promise((resolve) => {
+      const requestId = 'ytp_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+      const expected = type === 'GET_PLAYER_DATA' ? 'PLAYER_DATA_RESPONSE' : 'FETCH_TIMEDTEXT_RESPONSE';
+      const timer = setTimeout(() => {
+        window.removeEventListener('message', handler);
+        resolve(null);
+      }, 8000);
+      function handler(event) {
+        if (event.source !== window || !event.data || event.data.requestId !== requestId) return;
+        if (event.data.source === 'YTP_PAGE' && event.data.type === expected) {
+          window.removeEventListener('message', handler);
+          clearTimeout(timer);
+          resolve(event.data);
+        }
+      }
+      window.addEventListener('message', handler);
+      window.postMessage({ source: 'YTP_CONTENT', type, requestId, ...payload }, '*');
+    });
+  }
+
+  // Fetch captions through the page's own session (often works when the
+  // no-cookie InnerTube tiers are blocked)
+  async function fetchViaPageWorld(videoId, selectedTrackIndex = 0) {
+    try {
+      const playerMsg = await requestPageWorld('GET_PLAYER_DATA');
+      const tracks = playerMsg && playerMsg.data && playerMsg.data.captionTracks;
+      if (!Array.isArray(tracks) || tracks.length === 0) return null;
+      availableTracks = tracks;
+      const track = tracks[selectedTrackIndex] || tracks[0];
+      if (!track || !track.baseUrl) return null;
+      const timedMsg = await requestPageWorld('FETCH_TIMEDTEXT', { url: track.baseUrl });
+      const result = timedMsg && timedMsg.result;
+      if (!result || !result.ok || !result.text) return null;
+      const segments = parseTranscriptXml(result.text);
+      return segments.length > 0 ? segments : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Fetch Multi-Tier Transcript (Local Server + Background Worker + Page-World Session + Authenticated InnerTube)
   async function fetchAndroidInnerTubeTranscript(videoId, selectedTrackIndex = 0) {
     // 1. Try Local Server (http://localhost:3000)
     try {
@@ -216,6 +259,12 @@
         });
         if (bgData && bgData.length > 0) return bgData;
       }
+    } catch (e) {}
+
+    // 2b. Try Page-World injector (uses the YouTube page's own authenticated session & cookies)
+    try {
+      const pwSegs = await fetchViaPageWorld(videoId, selectedTrackIndex);
+      if (pwSegs && pwSegs.length > 0) return pwSegs;
     } catch (e) {}
 
     // 3. Try Authenticated InnerTube API
@@ -326,9 +375,24 @@
 
         const res = await fetch(url);
         if (res.ok) {
+          const contentType = res.headers.get('content-type') || '';
+          if (!contentType.includes('application/json')) {
+            batch.forEach(seg => translated.push(seg));
+            continue;
+          }
           const data = await res.json();
-          const fullTranslation = (data[0] || []).map(item => item[0] || '').join('');
+          if (!Array.isArray(data) || !Array.isArray(data[0])) {
+            batch.forEach(seg => translated.push(seg));
+            continue;
+          }
+          const fullTranslation = data[0].map(item => item[0] || '').join('');
           const translatedChunks = fullTranslation.split(/\n\n|\n/).map(s => s.trim()).filter(Boolean);
+
+          // Guard: never attach a translation to the wrong timestamp
+          if (translatedChunks.length !== batch.length) {
+            batch.forEach(seg => translated.push(seg));
+            continue;
+          }
 
           batch.forEach((seg, idx) => {
             translated.push({
@@ -867,7 +931,11 @@
 
   // Inject Floating Trigger Button (Always visible on bottom right)
   function injectFloatingTrigger() {
-    if (document.getElementById('ytp-floating-btn')) return;
+    const existing = document.getElementById('ytp-floating-btn');
+    if (existing) {
+      existing.style.display = ''; // restore after navigating back from Home/Search (was hidden there)
+      return;
+    }
 
     const btn = document.createElement('div');
     btn.id = 'ytp-floating-btn';
