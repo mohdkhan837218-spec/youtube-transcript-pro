@@ -124,6 +124,36 @@ document.addEventListener('DOMContentLoaded', async () => {
     return results;
   }
 
+  // Robustly extract "captionTracks": [...] from watch-page HTML (handles nested brackets)
+  function extractCaptionTracks(html) {
+    if (!html) return null;
+    const key = '"captionTracks"';
+    const keyIdx = html.indexOf(key);
+    if (keyIdx === -1) return null;
+    const arrStart = html.indexOf('[', keyIdx + key.length);
+    if (arrStart === -1) return null;
+    let depth = 0, inStr = false, esc = false;
+    for (let i = arrStart; i < html.length; i++) {
+      const ch = html[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === '\\') esc = true;
+        else if (ch === '"') inStr = false;
+      } else {
+        if (ch === '"') inStr = true;
+        else if (ch === '[') depth++;
+        else if (ch === ']') {
+          depth--;
+          if (depth === 0) {
+            try { return JSON.parse(html.slice(arrStart, i + 1)); }
+            catch (e) { return null; }
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   // Safe clipboard writer with legacy fallback
   async function safeCopyToClipboard(text) {
     try {
@@ -226,9 +256,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
       if (pageResp.ok) {
         const html = await pageResp.text();
-        const m = html.match(/"captionTracks":\s*(\[[^\]]+\])/);
-        if (m) {
-          const tracks = JSON.parse(m[1]);
+        const tracks = extractCaptionTracks(html);
+        if (tracks) {
           if (tracks.length > 0) {
             let selTrack = tracks.find(t => t.languageCode === lang) || tracks[0];
             const xmlResp = await fetch(selTrack.baseUrl);
