@@ -89,6 +89,38 @@ function parseTranscriptXml(rawXml) {
   return results;
 }
 
+// Robustly extract the "captionTracks": [...] JSON array from watch-page HTML.
+// The old /"captionTracks":\s*(\[[^\]]+\])/ regex broke on nested brackets
+// (e.g. "runs":[{"text":...}]) and killed this whole fallback tier.
+function extractCaptionTracks(html) {
+  if (!html) return null;
+  const key = '"captionTracks"';
+  const keyIdx = html.indexOf(key);
+  if (keyIdx === -1) return null;
+  const arrStart = html.indexOf('[', keyIdx + key.length);
+  if (arrStart === -1) return null;
+  let depth = 0, inStr = false, esc = false;
+  for (let i = arrStart; i < html.length; i++) {
+    const ch = html[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+    } else {
+      if (ch === '"') inStr = true;
+      else if (ch === '[') depth++;
+      else if (ch === ']') {
+        depth--;
+        if (depth === 0) {
+          try { return JSON.parse(html.slice(arrStart, i + 1)); }
+          catch (e) { return null; }
+        }
+      }
+    }
+  }
+  return null;
+}
+
 // Background Multi-Tier Extractor (Local Server + Web Scrape + Authenticated InnerTube)
 async function fetchInnerTubeBackground(videoId, targetLang = null) {
   // Tier 1: Check Local Server API (lightning fast if studio running)
@@ -135,8 +167,11 @@ async function fetchInnerTubeBackground(videoId, targetLang = null) {
           const xml = await xmlResp.text();
           let segments = parseTranscriptXml(xml);
 
+          let bgTranslated = false;
           if (targetLang && targetLang !== 'original' && selectedTrack.languageCode !== targetLang && segments.length > 0) {
-            segments = await translateSegmentsBackground(segments, targetLang);
+            const tr = await translateSegmentsBackground(segments, targetLang);
+            segments = tr.segments;
+            bgTranslated = tr.translated;
           }
 
           if (segments.length > 0) {
@@ -152,7 +187,8 @@ async function fetchInnerTubeBackground(videoId, targetLang = null) {
                 name: t.name?.runs?.[0]?.text || t.languageCode,
                 isAuto: !!t.kind && t.kind === 'asr'
               })),
-              selectedTrack: selectedTrack.languageCode,
+              selectedTrack: bgTranslated ? targetLang : selectedTrack.languageCode,
+              translated: bgTranslated,
               segments,
               totalLines: segments.length,
               totalWords: segments.reduce((acc, s) => acc + s.text.split(/\s+/).filter(Boolean).length, 0),
@@ -172,9 +208,8 @@ async function fetchInnerTubeBackground(videoId, targetLang = null) {
     });
     if (pageResp.ok) {
       const html = await pageResp.text();
-      const m = html.match(/"captionTracks":\s*(\[[^\]]+\])/);
-      if (m) {
-        const tracks = JSON.parse(m[1]);
+      const tracks = extractCaptionTracks(html);
+      if (tracks) {
         if (Array.isArray(tracks) && tracks.length > 0) {
           let selectedTrack = tracks[0];
           if (targetLang && targetLang !== 'original') {
@@ -195,6 +230,7 @@ async function fetchInnerTubeBackground(videoId, targetLang = null) {
                 hasCaptions: true,
                 tracks: tracks.map(t => ({ lang: t.languageCode, name: t.name?.simpleText || t.languageCode })),
                 selectedTrack: selectedTrack.languageCode,
+                translated: false,
                 segments,
                 totalLines: segments.length,
                 totalWords: segments.reduce((acc, s) => acc + s.text.split(/\s+/).filter(Boolean).length, 0),
@@ -217,6 +253,7 @@ async function fetchInnerTubeBackground(videoId, targetLang = null) {
     hasCaptions: false,
     tracks: [],
     selectedTrack: null,
+    translated: false,
     segments: [],
     totalLines: 0,
     totalWords: 0,
@@ -225,25 +262,38 @@ async function fetchInnerTubeBackground(videoId, targetLang = null) {
   };
 }
 
-// Background Translation Helper
+// Background Translation Helper — never misaligns lines or fails silently
 async function translateSegmentsBackground(segments, targetLang) {
-  if (!segments || segments.length === 0 || !targetLang || targetLang === 'original') return segments;
+  if (!segments || segments.length === 0 || !targetLang || targetLang === 'original') {
+    return { segments, translated: false };
+  }
   try {
     const texts = segments.map(s => s.text);
     const chunk = texts.join('\n');
     const transUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(chunk)}`;
     const transResp = await fetch(transUrl);
-    if (transResp.ok) {
-      const transData = await transResp.json();
-      const translatedCombined = (transData[0] || []).map(item => item[0]).join('');
-      const translatedLines = translatedCombined.split('\n');
-      return segments.map((s, idx) => ({
+    const contentType = transResp.headers.get('content-type') || '';
+    if (!transResp.ok || !contentType.includes('application/json')) {
+      return { segments, translated: false };
+    }
+    const transData = await transResp.json();
+    if (!Array.isArray(transData) || !Array.isArray(transData[0])) {
+      return { segments, translated: false };
+    }
+    const translatedCombined = transData[0].map(item => item[0]).join('');
+    const translatedLines = translatedCombined.split('\n');
+    if (translatedLines.length !== segments.length) {
+      return { segments, translated: false }; // keep originals, don't attach wrong translations to timestamps
+    }
+    return {
+      segments: segments.map((s, idx) => ({
         ...s,
         text: (translatedLines[idx] && translatedLines[idx].trim()) ? translatedLines[idx].trim() : s.text
-      }));
-    }
+      })),
+      translated: true
+    };
   } catch (e) {}
-  return segments;
+  return { segments, translated: false };
 }
 
 // Message Dispatcher
