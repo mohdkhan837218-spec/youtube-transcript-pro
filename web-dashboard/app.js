@@ -104,6 +104,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 2800);
   }
 
+  // Escape creator-controlled data (video titles, caption text) before innerHTML injection
+  function escapeHtml(str) {
+    return String(str ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   async function safeCopyToClipboard(text) {
     try {
       await navigator.clipboard.writeText(text);
@@ -424,6 +434,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (data.hasCaptions) {
         showToast(`Extracted ${data.totalLines} lines in 1-Click! ✨`);
+        if (data.translationFailed) {
+          setTimeout(() => showToast('⚠️ Translation service unavailable — original language dikhayi ja rahi hai'), 2900);
+        }
       } else {
         showToast('Is video par subtitles available nahi hain ⚠️');
       }
@@ -453,7 +466,7 @@ document.addEventListener('DOMContentLoaded', () => {
       container.innerHTML = `
         <div style="text-align: center; padding: 40px; color: #888;">
           <div style="font-size: 32px; margin-bottom: 8px;">🔍</div>
-          <div>${activeSearch ? `No lines matching "${activeSearch}"` : 'No captions available for this video.'}</div>
+          <div>${activeSearch ? `No lines matching "${escapeHtml(activeSearch)}"` : 'No captions available for this video.'}</div>
         </div>
       `;
       updateStats(0, 0);
@@ -464,14 +477,14 @@ document.addEventListener('DOMContentLoaded', () => {
       const row = document.createElement('div');
       row.className = 'seg-row';
 
-      let textHtml = s.text;
+      let textHtml = escapeHtml(s.text);
       if (activeSearch) {
         const regex = new RegExp(`(${activeSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
         textHtml = textHtml.replace(regex, '<mark>$1</mark>');
       }
 
       const pillHtml = showTimestamps 
-        ? `<button class="timestamp-pill" data-time="${s.start}" title="Click to jump video to ${s.timeStr}">${s.timeStr}</button>`
+        ? `<button class="timestamp-pill" data-time="${s.start}" title="Click to jump video to ${escapeHtml(s.timeStr)}">${escapeHtml(s.timeStr)}</button>`
         : '';
 
       row.innerHTML = `
@@ -674,6 +687,37 @@ document.addEventListener('DOMContentLoaded', () => {
     bulkCounterBadge.textContent = `${ids.length} URLs Detected`;
   });
 
+  // Try the server's parallel /api/bulk-transcript endpoint (same-origin, then localhost:3000).
+  // Falls back to null so the caller can use the slower sequential per-video path.
+  async function tryBulkApiEndpoint(vids, targetLang) {
+    const endpoints = ['/api/bulk-transcript', 'http://localhost:3000/api/bulk-transcript'];
+    for (const ep of endpoints) {
+      try {
+        const resp = await fetch(ep, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            urls: vids.map(v => `https://www.youtube.com/watch?v=${v}`),
+            lang: targetLang
+          })
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data && Array.isArray(data.results) && data.results.length > 0) {
+            return data.results;
+          }
+        }
+      } catch (e) {}
+    }
+    return null;
+  }
+
+  function updateBulkSummary(total) {
+    const successCount = bulkExtractedData.filter(d => d.hasCaptions).length;
+    const totalLinesCount = bulkExtractedData.reduce((acc, d) => acc + (d.totalLines || 0), 0);
+    bulkStatsSummary.textContent = `Total: ${bulkExtractedData.length}/${total} • ✅ ${successCount} with captions • ⏱️ ${totalLinesCount.toLocaleString()} total lines`;
+  }
+
   // Run Bulk Extraction
   btnBulkExtract.addEventListener('click', async () => {
     const vids = parseBulkUrls(bulkInput.value);
@@ -692,6 +736,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const targetLang = bulkLangSelect.value;
     const total = vids.length;
 
+    // FAST PATH: parallel server-side bulk extraction (much quicker for 10-50 videos)
+    let usedFastPath = false;
+    if (total > 1) {
+      bulkProgressText.textContent = `⚡ Fast bulk mode: sending ${total} videos to server in parallel...`;
+      bulkProgressPct.textContent = '…';
+      const fastResults = await tryBulkApiEndpoint(vids, targetLang);
+      if (fastResults) {
+        fastResults.forEach((item, i) => {
+          bulkExtractedData.push(item);
+          renderBulkCardItem(item, i);
+        });
+        updateBulkSummary(total);
+        usedFastPath = true;
+      }
+    }
+
+    if (!usedFastPath) {
     for (let i = 0; i < total; i++) {
       const vid = vids[i];
       const pct = Math.round(((i) / total) * 100);
@@ -718,10 +779,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       // Update summary counter
-      const successCount = bulkExtractedData.filter(d => d.hasCaptions).length;
-      const totalLinesCount = bulkExtractedData.reduce((acc, d) => acc + (d.totalLines || 0), 0);
-      bulkStatsSummary.textContent = `Total: ${bulkExtractedData.length}/${total} • ✅ ${successCount} with captions • ⏱️ ${totalLinesCount.toLocaleString()} total lines`;
+      updateBulkSummary(total);
     }
+    } // end sequential fallback
 
     // Finished
     bulkProgressPct.textContent = `100%`;
@@ -738,18 +798,20 @@ document.addEventListener('DOMContentLoaded', () => {
     card.className = `bulk-card-item ${item.hasCaptions ? '' : 'status-error'}`;
 
     const statusBadge = item.hasCaptions
-      ? `<span class="bulk-status-badge success">✅ ${item.totalLines} lines • ${item.selectedTrack || 'Captions'}</span>`
+      ? `<span class="bulk-status-badge success">✅ ${item.totalLines} lines • ${escapeHtml(item.selectedTrack || 'Captions')}</span>`
       : `<span class="bulk-status-badge no-captions">⚠️ No Subtitles</span>`;
 
+    const safeTitle = escapeHtml(item.title);
+    const safeThumb = escapeHtml(item.thumbnail || '');
     card.innerHTML = `
       <div class="bulk-card-main">
-        <img class="bulk-card-thumb" src="${item.thumbnail}" alt="${item.title}" onerror="this.src='https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg'" />
+        <img class="bulk-card-thumb" src="${safeThumb}" alt="${safeTitle}" onerror="this.src='https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg'" />
         
         <div class="bulk-card-info">
-          <div class="bulk-card-title">${item.title}</div>
+          <div class="bulk-card-title">${safeTitle}</div>
           <div class="bulk-card-meta">
             ${statusBadge}
-            <span>Duration: ${item.duration || 'N/A'}</span>
+            <span>Duration: ${escapeHtml(item.duration || 'N/A')}</span>
             <span>ID: ${item.videoId}</span>
           </div>
         </div>
@@ -775,8 +837,8 @@ document.addEventListener('DOMContentLoaded', () => {
         ${item.segments && item.segments.length > 0 
           ? item.segments.map(s => `
               <div class="bulk-drawer-line">
-                <span class="bulk-drawer-time">${s.timeStr}</span>
-                <span class="bulk-drawer-text">${s.text}</span>
+                <span class="bulk-drawer-time">${escapeHtml(s.timeStr)}</span>
+                <span class="bulk-drawer-text">${escapeHtml(s.text)}</span>
               </div>
             `).join('')
           : '<div style="color:#888;">No captions available to display.</div>'
@@ -895,10 +957,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Bulk Global Action: Download Combined .TXT
+  // Bulk Global Action: Download Combined .TXT (respects the Format dropdown)
   btnBulkDownloadTxt.addEventListener('click', () => {
     const valid = bulkExtractedData.filter(d => d.hasCaptions && d.segments.length > 0);
     if (valid.length === 0) return;
+
+    const fmt = (bulkFormatSelect && bulkFormatSelect.value) || 'timestamps';
+    const fmtSeg = (s) => fmt === 'plain' ? s.text : `${s.timeStr} ${s.text}`;
+    const joiner = fmt === 'plain' ? ' ' : '\n';
 
     let combined = '';
     valid.forEach((d, idx) => {
@@ -906,11 +972,11 @@ document.addEventListener('DOMContentLoaded', () => {
       combined += `VIDEO ${idx + 1}: ${d.title}\n`;
       combined += `URL: https://www.youtube.com/watch?v=${d.videoId}\n`;
       combined += `==================================================\n\n`;
-      combined += d.segments.map(s => `${s.timeStr} ${s.text}`).join('\n');
+      combined += d.segments.map(fmtSeg).join(joiner);
       combined += `\n\n\n`;
     });
 
-    downloadFile(combined, `bulk-transcripts-${valid.length}-videos.txt`);
+    downloadFile(combined, `bulk-transcripts-${valid.length}-videos${fmt === 'plain' ? '-plain' : ''}.txt`);
     showToast(`Downloaded combined TXT for ${valid.length} videos! 💾`);
   });
 
@@ -931,4 +997,17 @@ document.addEventListener('DOMContentLoaded', () => {
     bulkCounterBadge.textContent = '0 URLs Detected';
     showToast('Cleared bulk queue!');
   });
+
+  // Auto-load video when opened via extension popup "Open in Studio" (?url=...)
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const sharedUrl = params.get('url');
+    if (sharedUrl) {
+      const vid = extractVideoId(sharedUrl);
+      if (vid) {
+        urlInput.value = sharedUrl;
+        loadSingleVideo(vid);
+      }
+    }
+  } catch (e) {}
 });
