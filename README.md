@@ -5,7 +5,7 @@
 # 🎬 YouTube Transcript Pro (v1.1.2)
 ### ⚡ 1-Click Multi-Language YouTube Transcript & Bulk Video Extractor
 
-[![Version](https://img.shields.io/badge/version-1.1.2-red.svg?style=for-the-badge&logo=youtube)](https://github.com/mohdkhan837218-spec/youtube-transcript-pro)
+[![Version](https://img.shields.io/badge/version-1.1.3-red.svg?style=for-the-badge&logo=youtube)](https://github.com/mohdkhan837218-spec/youtube-transcript-pro)
 [![Manifest V3](https://img.shields.io/badge/Chrome_Extension-Manifest_V3-4285F4.svg?style=for-the-badge&logo=googlechrome)](manifest.json)
 [![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-brightgreen.svg?style=for-the-badge&logo=nodedotjs)](package.json)

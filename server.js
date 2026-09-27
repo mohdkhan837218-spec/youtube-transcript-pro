@@ -78,25 +78,42 @@ function parseTranscriptXml(rawXml) {
   return results;
 }
 
-// Translate segments batch
+// Translate segments batch — returns { segments, translated }.
+// NEVER silently misalign: if the provider merges/splits lines or is
+// unreachable, original text is kept and translated=false is reported.
 async function translateSegments(segments, targetLang) {
-  if (!segments || segments.length === 0 || !targetLang || targetLang === 'original') return segments;
+  if (!segments || segments.length === 0 || !targetLang || targetLang === 'original') {
+    return { segments, translated: false };
+  }
   try {
     const texts = segments.map(s => s.text);
     const chunk = texts.join('\n');
     const transUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(chunk)}`;
     const resp = await fetch(transUrl);
-    if (!resp.ok) return segments;
+    const contentType = resp.headers.get('content-type') || '';
+    if (!resp.ok || !contentType.includes('application/json')) {
+      console.warn(`Translation warning: provider unavailable (HTTP ${resp.status}), keeping original text`);
+      return { segments, translated: false };
+    }
     const data = await resp.json();
-    const translatedCombined = (data[0] || []).map(item => item[0]).join('');
+    if (!Array.isArray(data) || !Array.isArray(data[0])) {
+      console.warn('Translation warning: unexpected provider response shape, keeping original text');
+      return { segments, translated: false };
+    }
+    const translatedCombined = data[0].map(item => item[0]).join('');
     const translatedLines = translatedCombined.split('\n');
-    return segments.map((s, idx) => ({
+    if (translatedLines.length !== segments.length) {
+      console.warn(`Translation warning: line count mismatch (${translatedLines.length} vs ${segments.length}), keeping original text to avoid wrong timestamps`);
+      return { segments, translated: false };
+    }
+    const out = segments.map((s, idx) => ({
       ...s,
       text: (translatedLines[idx] && translatedLines[idx].trim()) ? translatedLines[idx].trim() : s.text
     }));
+    return { segments: out, translated: true };
   } catch (err) {
     console.warn('Translation warning:', err.message);
-    return segments;
+    return { segments, translated: false };
   }
 }
 
@@ -172,9 +189,14 @@ async function fetchVideoTranscriptAndMeta(videoId, targetLang = null) {
           if (xmlResp.ok) {
             const xml = await xmlResp.text();
             let segments = parseTranscriptXml(xml);
+            let tierTranslated = false;
+            let tierTranslationFailed = false;
 
             if (targetLang && targetLang !== 'original' && selectedTrack.languageCode !== targetLang && segments.length > 0) {
-              segments = await translateSegments(segments, targetLang);
+              const tr = await translateSegments(segments, targetLang);
+              segments = tr.segments;
+              tierTranslated = tr.translated;
+              tierTranslationFailed = !tr.translated;
             }
 
             if (segments.length > 0) {
@@ -196,6 +218,8 @@ async function fetchVideoTranscriptAndMeta(videoId, targetLang = null) {
                   isAuto: !!t.kind && t.kind === 'asr'
                 })),
                 selectedTrack: selectedTrack.languageCode,
+                translated: tierTranslated,
+                translationFailed: tierTranslationFailed,
                 segments,
                 totalLines: segments.length,
                 totalWords: segments.reduce((acc, s) => acc + s.text.split(/\s+/).filter(Boolean).length, 0),
@@ -220,6 +244,8 @@ async function fetchVideoTranscriptAndMeta(videoId, targetLang = null) {
       thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
       hasCaptions: false,
       tracks: [],
+      translated: false,
+      translationFailed: false,
       segments: [],
       totalLines: 0,
       totalWords: 0,
@@ -247,9 +273,14 @@ async function fetchVideoTranscriptAndMeta(videoId, targetLang = null) {
   });
 
   // Translate if requested and language differs
+  let translated = false;
+  let translationFailed = false;
   if (targetLang && targetLang !== 'original' && targetLang !== detectedLang && segments.length > 0) {
     try {
-      segments = await translateSegments(segments, targetLang);
+      const tr = await translateSegments(segments, targetLang);
+      segments = tr.segments;
+      translated = tr.translated;
+      translationFailed = !tr.translated;
     } catch (e) {}
   }
 
@@ -266,7 +297,9 @@ async function fetchVideoTranscriptAndMeta(videoId, targetLang = null) {
     thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
     hasCaptions: true,
     tracks: [{ lang: detectedLang, name: detectedLang, isAuto: true }],
-    selectedTrack: targetLang || detectedLang,
+    selectedTrack: (targetLang && (translated || targetLang === detectedLang)) ? targetLang : detectedLang,
+    translated,
+    translationFailed,
     segments,
     totalLines: segments.length,
     totalWords: segments.reduce((acc, s) => acc + s.text.split(/\s+/).filter(Boolean).length, 0),
@@ -406,21 +439,46 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Static File Serving
-  let filePath = path.join(WEB_DIR, pathname === '/' ? 'index.html' : pathname);
-  
-  // Also support serving from extension root (e.g. /icons/)
-  if (!fs.existsSync(filePath)) {
-    const rootPath = path.join(__dirname, pathname);
-    if (fs.existsSync(rootPath) && fs.statSync(rootPath).isFile()) {
-      filePath = rootPath;
+  // Static File Serving (hardened: path traversal blocked, repo root restricted to public assets)
+  const ROOT_ASSET_PREFIXES = ['/icons/', '/assets/'];
+
+  function safeResolve(baseDir, requestPath) {
+    try {
+      let p = String(requestPath || '').split('?')[0].split('#')[0];
+      try { p = decodeURIComponent(p); } catch (e) { return null; }
+      if (p === '/') p = '/index.html';
+      const resolved = path.normalize(path.join(baseDir, p));
+      const baseNorm = path.normalize(baseDir);
+      if (resolved !== baseNorm && !resolved.startsWith(baseNorm + path.sep)) return null;
+      return resolved;
+    } catch (e) { return null; }
+  }
+
+  function send404() {
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('404 Not Found');
+  }
+
+  let filePath = safeResolve(WEB_DIR, pathname);
+
+  // Also support serving extension assets (icons/, assets/) from repo root — nothing else.
+  // server.js, package.json, .git, etc. are NEVER served.
+  if (!filePath || !fs.existsSync(filePath)) {
+    const isPublicAsset = ROOT_ASSET_PREFIXES.some(pre => pathname === pre.slice(0, -1) || pathname.startsWith(pre));
+    if (isPublicAsset) {
+      const rootResolved = safeResolve(__dirname, pathname);
+      if (rootResolved && fs.existsSync(rootResolved)) filePath = rootResolved;
     }
+  }
+
+  if (!filePath) {
+    send404();
+    return;
   }
 
   fs.stat(filePath, (err, stats) => {
     if (err || !stats.isFile()) {
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('404 Not Found');
+      send404();
       return;
     }
 
@@ -432,10 +490,11 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-server.listen(PORT, () => {
+const HOST = process.env.HOST || '127.0.0.1'; // localhost-only by default; set HOST=0.0.0.0 to expose on LAN
+server.listen(PORT, HOST, () => {
   console.log(`\n======================================================`);
   console.log(`⚡ YouTube Transcript Pro Web Studio is running!`);
-  console.log(`🌐 URL: http://localhost:${PORT}`);
-  console.log(`API: http://localhost:${PORT}/api/transcript?videoId=WMmE14yOLZk`);
+  console.log(`🌐 URL: http://${HOST}:${PORT}`);
+  console.log(`API: http://${HOST}:${PORT}/api/transcript?videoId=WMmE14yOLZk`);
   console.log(`======================================================\n`);
 });
