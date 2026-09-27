@@ -5,6 +5,7 @@
   let rawSegments = [];
   let activeSegments = [];
   let availableTracks = [];
+  let currentTrackIndex = 0;
   let currentLangCode = 'default';
   let searchQuery = '';
   let activeSegmentIndex = -1;
@@ -215,15 +216,80 @@
     });
   }
 
+  // Intelligently select best caption track (prioritizes Original/Manual over Auto-generated)
+  function selectBestCaptionTrack(tracks, captionsRenderer = null, targetLang = null) {
+    if (!Array.isArray(tracks) || tracks.length === 0) return null;
+
+    const isManual = (t) => t && t.kind !== 'asr' && !(typeof t.vssId === 'string' && t.vssId.startsWith('a.'));
+    const isAsr = (t) => !isManual(t);
+
+    // If specific target language is requested (and not 'default' / 'original')
+    if (targetLang && targetLang !== 'default' && targetLang !== 'original') {
+      const langLower = targetLang.toLowerCase();
+      // 1. Manual track exact match
+      const manualExact = tracks.find(t => isManual(t) && t.languageCode?.toLowerCase() === langLower);
+      if (manualExact) return manualExact;
+
+      // 2. Manual track base language match (e.g. 'en' matches 'en-US' or vice versa)
+      const baseLang = langLower.split('-')[0];
+      const manualBase = tracks.find(t => isManual(t) && t.languageCode?.toLowerCase().split('-')[0] === baseLang);
+      if (manualBase) return manualBase;
+
+      // 3. ASR track exact match
+      const asrExact = tracks.find(t => isAsr(t) && t.languageCode?.toLowerCase() === langLower);
+      if (asrExact) return asrExact;
+
+      // 4. ASR track base language match
+      const asrBase = tracks.find(t => isAsr(t) && t.languageCode?.toLowerCase().split('-')[0] === baseLang);
+      if (asrBase) return asrBase;
+    }
+
+    // Original / Default selection:
+    const audioTracks = captionsRenderer?.audioTracks;
+    const defaultAudioIdx = captionsRenderer?.defaultAudioTrackIndex ?? 0;
+    const activeAudioTrack = (Array.isArray(audioTracks) && audioTracks[defaultAudioIdx]) || (audioTracks && audioTracks[0]);
+
+    // Priority 1: Check YouTube's official defaultCaptionTrackIndex
+    if (activeAudioTrack && typeof activeAudioTrack.defaultCaptionTrackIndex === 'number') {
+      const defTrack = tracks[activeAudioTrack.defaultCaptionTrackIndex];
+      if (defTrack) return defTrack;
+    }
+
+    // Priority 2: Check captionTrackIndices ranked by YouTube
+    if (activeAudioTrack && Array.isArray(activeAudioTrack.captionTrackIndices)) {
+      for (const idx of activeAudioTrack.captionTrackIndices) {
+        if (tracks[idx] && isManual(tracks[idx])) {
+          return tracks[idx];
+        }
+      }
+    }
+
+    // Priority 3: First manual / creator uploaded track in array
+    const firstManual = tracks.find(t => isManual(t));
+    if (firstManual) return firstManual;
+
+    // Priority 4: If only auto-generated (ASR) tracks exist, return the first one
+    return tracks[0];
+  }
+
   // Fetch captions through the page's own session (often works when the
   // no-cookie InnerTube tiers are blocked)
-  async function fetchViaPageWorld(videoId, selectedTrackIndex = 0) {
+  async function fetchViaPageWorld(videoId, selectedTrackIndex = null) {
     try {
       const playerMsg = await requestPageWorld('GET_PLAYER_DATA');
       const tracks = playerMsg && playerMsg.data && playerMsg.data.captionTracks;
       if (!Array.isArray(tracks) || tracks.length === 0) return null;
       availableTracks = tracks;
-      const track = tracks[selectedTrackIndex] || tracks[0];
+
+      let track;
+      if (typeof selectedTrackIndex === 'number' && tracks[selectedTrackIndex]) {
+        track = tracks[selectedTrackIndex];
+        currentTrackIndex = selectedTrackIndex;
+      } else {
+        track = selectBestCaptionTrack(tracks, playerMsg.data);
+        currentTrackIndex = Math.max(0, tracks.indexOf(track));
+      }
+
       if (!track || !track.baseUrl) return null;
       const timedMsg = await requestPageWorld('FETCH_TIMEDTEXT', { url: track.baseUrl });
       const result = timedMsg && timedMsg.result;
@@ -236,13 +302,21 @@
   }
 
   // Fetch Multi-Tier Transcript (Local Server + Background Worker + Page-World Session + Authenticated InnerTube)
-  async function fetchAndroidInnerTubeTranscript(videoId, selectedTrackIndex = 0) {
+  async function fetchAndroidInnerTubeTranscript(videoId, selectedTrackIndex = null) {
+    const targetLangParam = (typeof selectedTrackIndex === 'number' && availableTracks[selectedTrackIndex]) 
+      ? availableTracks[selectedTrackIndex].languageCode 
+      : null;
+
     // 1. Try Local Server (http://localhost:3000)
     try {
-      const sResp = await fetch(`http://localhost:3000/api/transcript?videoId=${encodeURIComponent(videoId)}`);
+      const url = `http://localhost:3000/api/transcript?videoId=${encodeURIComponent(videoId)}${targetLangParam ? `&lang=${encodeURIComponent(targetLangParam)}` : ''}`;
+      const sResp = await fetch(url);
       if (sResp.ok) {
         const sData = await sResp.json();
         if (sData && sData.hasCaptions && sData.segments?.length > 0) {
+          if (Array.isArray(sData.tracks) && sData.tracks.length > 0) {
+            availableTracks = sData.tracks;
+          }
           return sData.segments;
         }
       }
@@ -252,12 +326,21 @@
     try {
       if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
         const bgData = await new Promise((resolve) => {
-          chrome.runtime.sendMessage({ type: 'FETCH_TRANSCRIPT', videoId }, (res) => {
+          chrome.runtime.sendMessage({ 
+            type: 'FETCH_TRANSCRIPT', 
+            videoId, 
+            targetLang: targetLangParam 
+          }, (res) => {
             if (chrome.runtime.lastError) resolve(null);
-            else resolve(res?.data?.segments || null);
+            else resolve(res?.data || null);
           });
         });
-        if (bgData && bgData.length > 0) return bgData;
+        if (bgData && bgData.hasCaptions && bgData.segments?.length > 0) {
+          if (Array.isArray(bgData.tracks) && bgData.tracks.length > 0) {
+            availableTracks = bgData.tracks;
+          }
+          return bgData.segments;
+        }
       }
     } catch (e) {}
 
@@ -288,10 +371,19 @@
 
       if (playerResp.ok) {
         const data = await playerResp.json();
-        const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+        const renderer = data?.captions?.playerCaptionsTracklistRenderer;
+        const tracks = renderer?.captionTracks;
         if (Array.isArray(tracks) && tracks.length > 0) {
           availableTracks = tracks;
-          const track = tracks[selectedTrackIndex] || tracks[0];
+          let track;
+          if (typeof selectedTrackIndex === 'number' && tracks[selectedTrackIndex]) {
+            track = tracks[selectedTrackIndex];
+            currentTrackIndex = selectedTrackIndex;
+          } else {
+            track = selectBestCaptionTrack(tracks, renderer, targetLangParam);
+            currentTrackIndex = Math.max(0, tracks.indexOf(track));
+          }
+
           if (track?.baseUrl) {
             const xmlResp = await fetch(track.baseUrl, {
               headers: { 'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14)' }
@@ -575,13 +667,16 @@
     // Original / Available video tracks
     if (availableTracks && availableTracks.length > 0) {
       const trackGroup = document.createElement('optgroup');
-      trackGroup.label = '— Video Audio Tracks —';
+      trackGroup.label = '— Available Subtitles / Audio Tracks —';
       availableTracks.forEach((t, i) => {
         const opt = document.createElement('option');
         opt.value = `track_${i}`;
-        const trackName = t.name?.runs?.[0]?.text || t.name?.simpleText || t.languageCode;
-        opt.textContent = `${trackName} (${t.languageCode})`;
-        if (i === 0) opt.selected = true;
+        const isAuto = t.isAuto || t.kind === 'asr' || (typeof t.vssId === 'string' && t.vssId.startsWith('a.'));
+        const trackName = t.name?.runs?.[0]?.text || t.name?.simpleText || t.name || t.languageCode || `Track ${i + 1}`;
+        const langCode = t.languageCode || t.lang || '';
+        const tag = isAuto ? ' [Auto-generated]' : ' [Original Subtitles]';
+        opt.textContent = `${trackName}${langCode ? ` (${langCode})` : ''}${tag}`;
+        if (i === currentTrackIndex) opt.selected = true;
         trackGroup.appendChild(opt);
       });
       select.appendChild(trackGroup);
@@ -832,18 +927,28 @@
         listEl.innerHTML = `
           <div class="ytp-state-container">
             <div class="ytp-spinner"></div>
-            <div>Switching audio track...</div>
+            <div>Switching subtitle track...</div>
           </div>
         `;
+        currentTrackIndex = trackIdx;
         const segs = await fetchAndroidInnerTubeTranscript(currentVideoId, trackIdx);
         if (segs && segs.length > 0) {
           rawSegments = segs;
           activeSegments = segs;
           renderSegmentsList();
           updateStats();
-          showToast('Switched audio track! 🌐');
+          showToast('Switched subtitle track! 🌐');
         }
       } else if (currentLangCode === 'default' || currentLangCode === 'original') {
+        const bestTrack = selectBestCaptionTrack(availableTracks);
+        const bestIdx = availableTracks.indexOf(bestTrack);
+        if (bestIdx !== -1 && bestIdx !== currentTrackIndex) {
+          currentTrackIndex = bestIdx;
+          const segs = await fetchAndroidInnerTubeTranscript(currentVideoId, bestIdx);
+          if (segs && segs.length > 0) {
+            rawSegments = segs;
+          }
+        }
         activeSegments = rawSegments;
         renderSegmentsList();
         updateStats();
@@ -963,6 +1068,7 @@
         rawSegments = [];
         activeSegments = [];
         availableTracks = [];
+        currentTrackIndex = 0;
         activeSegmentIndex = -1;
         // Pre-load in background immediately
         preloadTranscript();

@@ -177,13 +177,70 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  // Intelligently select best caption track (prioritizes Original/Manual over Auto-generated)
+  function selectBestCaptionTrack(tracks, captionsRenderer = null, targetLang = null) {
+    if (!Array.isArray(tracks) || tracks.length === 0) return null;
+
+    const isManual = (t) => t && t.kind !== 'asr' && !(typeof t.vssId === 'string' && t.vssId.startsWith('a.'));
+    const isAsr = (t) => !isManual(t);
+
+    if (targetLang && targetLang !== 'default' && targetLang !== 'original') {
+      const langLower = targetLang.toLowerCase();
+      // 1. Manual track exact match
+      const manualExact = tracks.find(t => isManual(t) && t.languageCode?.toLowerCase() === langLower);
+      if (manualExact) return manualExact;
+
+      // 2. Manual track base language match (e.g. 'en' matches 'en-US')
+      const baseLang = langLower.split('-')[0];
+      const manualBase = tracks.find(t => isManual(t) && t.languageCode?.toLowerCase().split('-')[0] === baseLang);
+      if (manualBase) return manualBase;
+
+      // 3. ASR track exact match
+      const asrExact = tracks.find(t => isAsr(t) && t.languageCode?.toLowerCase() === langLower);
+      if (asrExact) return asrExact;
+
+      // 4. ASR track base language match
+      const asrBase = tracks.find(t => isAsr(t) && t.languageCode?.toLowerCase().split('-')[0] === baseLang);
+      if (asrBase) return asrBase;
+    }
+
+    // Original / Default selection:
+    const audioTracks = captionsRenderer?.audioTracks;
+    const defaultAudioIdx = captionsRenderer?.defaultAudioTrackIndex ?? 0;
+    const activeAudioTrack = (Array.isArray(audioTracks) && audioTracks[defaultAudioIdx]) || (audioTracks && audioTracks[0]);
+
+    // Priority 1: Check YouTube's official defaultCaptionTrackIndex
+    if (activeAudioTrack && typeof activeAudioTrack.defaultCaptionTrackIndex === 'number') {
+      const defTrack = tracks[activeAudioTrack.defaultCaptionTrackIndex];
+      if (defTrack) return defTrack;
+    }
+
+    // Priority 2: Check captionTrackIndices ranked by YouTube
+    if (activeAudioTrack && Array.isArray(activeAudioTrack.captionTrackIndices)) {
+      for (const idx of activeAudioTrack.captionTrackIndices) {
+        if (tracks[idx] && isManual(tracks[idx])) {
+          return tracks[idx];
+        }
+      }
+    }
+
+    // Priority 3: First manual / creator uploaded track in array
+    const firstManual = tracks.find(t => isManual(t));
+    if (firstManual) return firstManual;
+
+    // Priority 4: If only auto-generated (ASR) tracks exist, return the first one
+    return tracks[0];
+  }
+
   // Multi-tier transcript fetcher for Popup
   async function fetchPopupTranscriptData(vid, targetLang = null) {
-    const lang = targetLang || (await chrome.storage.local.get(['defaultLanguage'])).defaultLanguage || 'hi';
+    const prefs = await chrome.storage.local.get(['defaultLanguage']);
+    const lang = targetLang || prefs.defaultLanguage || 'default';
+    const serverLangParam = (lang && lang !== 'default' && lang !== 'original') ? `&lang=${encodeURIComponent(lang)}` : '';
 
     // 1. Try local server first (http://localhost:3000)
     try {
-      const sResp = await fetch(`http://localhost:3000/api/transcript?videoId=${encodeURIComponent(vid)}&lang=${encodeURIComponent(lang)}`);
+      const sResp = await fetch(`http://localhost:3000/api/transcript?videoId=${encodeURIComponent(vid)}${serverLangParam}`);
       if (sResp.ok) {
         const sData = await sResp.json();
         if (sData && sData.hasCaptions && sData.segments && sData.segments.length > 0) {
@@ -195,7 +252,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 2. Try background service worker
     try {
       const bgResp = await new Promise(resolve => {
-        chrome.runtime.sendMessage({ type: 'FETCH_TRANSCRIPT', videoId: vid, targetLang: lang }, res => {
+        chrome.runtime.sendMessage({ 
+          type: 'FETCH_TRANSCRIPT', 
+          videoId: vid, 
+          targetLang: (lang !== 'default' && lang !== 'original') ? lang : null 
+        }, res => {
           if (chrome.runtime.lastError) resolve(null);
           else resolve(res?.data || null);
         });
@@ -222,9 +283,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (resp.ok) {
         const data = await resp.json();
         const vDetails = data?.videoDetails || {};
-        const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+        const renderer = data?.captions?.playerCaptionsTracklistRenderer;
+        const tracks = renderer?.captionTracks || [];
         if (tracks.length > 0) {
-          let selTrack = tracks.find(t => t.languageCode === lang) || tracks[0];
+          let selTrack = selectBestCaptionTrack(tracks, renderer, lang);
           const xmlResp = await fetch(selTrack.baseUrl, {
             headers: { 'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14)' }
           });
@@ -257,26 +319,24 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (pageResp.ok) {
         const html = await pageResp.text();
         const tracks = extractCaptionTracks(html);
-        if (tracks) {
-          if (tracks.length > 0) {
-            let selTrack = tracks.find(t => t.languageCode === lang) || tracks[0];
-            const xmlResp = await fetch(selTrack.baseUrl);
-            if (xmlResp.ok) {
-              const rawXml = await xmlResp.text();
-              const segments = parsePopupSegments(rawXml);
-              if (segments.length > 0) {
-                return {
-                  videoId: vid,
-                  title: `YouTube Video (${vid})`,
-                  thumbnail: `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`,
-                  hasCaptions: true,
-                  totalLines: segments.length,
-                  duration: segments[segments.length - 1].timeStr.replace(/[[\]]/g, ''),
-                  segments,
-                  plainText: segments.map(s => s.text).join(' '),
-                  timestampedText: segments.map(s => `${s.timeStr} ${s.text}`).join('\n')
-                };
-              }
+        if (tracks && tracks.length > 0) {
+          let selTrack = selectBestCaptionTrack(tracks, null, lang);
+          const xmlResp = await fetch(selTrack.baseUrl);
+          if (xmlResp.ok) {
+            const rawXml = await xmlResp.text();
+            const segments = parsePopupSegments(rawXml);
+            if (segments.length > 0) {
+              return {
+                videoId: vid,
+                title: `YouTube Video (${vid})`,
+                thumbnail: `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`,
+                hasCaptions: true,
+                totalLines: segments.length,
+                duration: segments[segments.length - 1].timeStr.replace(/[[\]]/g, ''),
+                segments,
+                plainText: segments.map(s => s.text).join(' '),
+                timestampedText: segments.map(s => `${s.timeStr} ${s.text}`).join('\n')
+              };
             }
           }
         }

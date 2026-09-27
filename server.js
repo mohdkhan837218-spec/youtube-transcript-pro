@@ -117,6 +117,62 @@ async function translateSegments(segments, targetLang) {
   }
 }
 
+// Intelligently select best caption track (prioritizes Original/Manual over Auto-generated)
+function selectBestCaptionTrack(tracks, captionsRenderer = null, targetLang = null) {
+  if (!Array.isArray(tracks) || tracks.length === 0) return null;
+
+  const isManual = (t) => t && t.kind !== 'asr' && !(typeof t.vssId === 'string' && t.vssId.startsWith('a.'));
+  const isAsr = (t) => !isManual(t);
+
+  // If specific target language is requested (and not 'default' / 'original')
+  if (targetLang && targetLang !== 'default' && targetLang !== 'original') {
+    const langLower = targetLang.toLowerCase();
+    // 1. Manual track exact match
+    const manualExact = tracks.find(t => isManual(t) && t.languageCode?.toLowerCase() === langLower);
+    if (manualExact) return manualExact;
+
+    // 2. Manual track base language match (e.g. 'en' matches 'en-US' or vice versa)
+    const baseLang = langLower.split('-')[0];
+    const manualBase = tracks.find(t => isManual(t) && t.languageCode?.toLowerCase().split('-')[0] === baseLang);
+    if (manualBase) return manualBase;
+
+    // 3. ASR track exact match
+    const asrExact = tracks.find(t => isAsr(t) && t.languageCode?.toLowerCase() === langLower);
+    if (asrExact) return asrExact;
+
+    // 4. ASR track base language match
+    const asrBase = tracks.find(t => isAsr(t) && t.languageCode?.toLowerCase().split('-')[0] === baseLang);
+    if (asrBase) return asrBase;
+  }
+
+  // Original / Default selection:
+  const audioTracks = captionsRenderer?.audioTracks;
+  const defaultAudioIdx = captionsRenderer?.defaultAudioTrackIndex ?? 0;
+  const activeAudioTrack = (Array.isArray(audioTracks) && audioTracks[defaultAudioIdx]) || (audioTracks && audioTracks[0]);
+
+  // Priority 1: Check YouTube's official defaultCaptionTrackIndex
+  if (activeAudioTrack && typeof activeAudioTrack.defaultCaptionTrackIndex === 'number') {
+    const defTrack = tracks[activeAudioTrack.defaultCaptionTrackIndex];
+    if (defTrack) return defTrack;
+  }
+
+  // Priority 2: Check captionTrackIndices ranked by YouTube
+  if (activeAudioTrack && Array.isArray(activeAudioTrack.captionTrackIndices)) {
+    for (const idx of activeAudioTrack.captionTrackIndices) {
+      if (tracks[idx] && isManual(tracks[idx])) {
+        return tracks[idx];
+      }
+    }
+  }
+
+  // Priority 3: First manual / creator uploaded track in array
+  const firstManual = tracks.find(t => isManual(t));
+  if (firstManual) return firstManual;
+
+  // Priority 4: If only auto-generated (ASR) tracks exist, return the first one
+  return tracks[0];
+}
+
 // Multi-Tier Transcript and Metadata Extractor
 async function fetchVideoTranscriptAndMeta(videoId, targetLang = null) {
   // 1. Fetch Video Metadata via oEmbed
@@ -132,103 +188,99 @@ async function fetchVideoTranscriptAndMeta(videoId, targetLang = null) {
   } catch (e) {}
 
   let rawSegments = null;
-  let detectedLang = 'hi';
+  let detectedLang = 'default';
 
-  // Tier 1: Try YoutubeTranscript with targetLang (if requested)
-  if (targetLang && targetLang !== 'original') {
+  // Tier 1: InnerTube API with authentic Android User-Agent & Smart Track Selection
+  try {
+    const resp = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14)'
+      },
+      body: JSON.stringify({
+        context: { client: { clientName: 'ANDROID', clientVersion: '20.10.38' } },
+        videoId: videoId
+      })
+    });
+
+    if (resp.ok) {
+      const data = await resp.json();
+      const vDetails = data?.videoDetails || {};
+      if (vDetails.title) title = vDetails.title;
+      if (vDetails.author) author = vDetails.author;
+      const renderer = data?.captions?.playerCaptionsTracklistRenderer;
+      const tracks = renderer?.captionTracks || [];
+
+      if (Array.isArray(tracks) && tracks.length > 0) {
+        let selectedTrack = selectBestCaptionTrack(tracks, renderer, targetLang);
+
+        const xmlResp = await fetch(selectedTrack.baseUrl, {
+          headers: { 'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14)' }
+        });
+        if (xmlResp.ok) {
+          const xml = await xmlResp.text();
+          let segments = parseTranscriptXml(xml);
+          let tierTranslated = false;
+          let tierTranslationFailed = false;
+
+          if (targetLang && targetLang !== 'original' && targetLang !== 'default' && selectedTrack.languageCode !== targetLang && segments.length > 0) {
+            const tr = await translateSegments(segments, targetLang);
+            segments = tr.segments;
+            tierTranslated = tr.translated;
+            tierTranslationFailed = !tr.translated;
+          }
+
+          if (segments.length > 0) {
+            const lastSec = segments[segments.length - 1].end;
+            const durMin = Math.floor(lastSec / 60);
+            const durSec = (Math.floor(lastSec) % 60).toString().padStart(2, '0');
+
+            return {
+              videoId,
+              title,
+              author,
+              duration: `${durMin}:${durSec}`,
+              durationSeconds: Math.floor(lastSec),
+              thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+              hasCaptions: true,
+              tracks: tracks.map((t, idx) => ({
+                index: idx,
+                lang: t.languageCode,
+                name: t.name?.runs?.[0]?.text || t.name?.simpleText || t.languageCode,
+                isAuto: t.kind === 'asr' || (typeof t.vssId === 'string' && t.vssId.startsWith('a.'))
+              })),
+              selectedTrack: tierTranslated ? targetLang : selectedTrack.languageCode,
+              translated: tierTranslated,
+              translationFailed: tierTranslationFailed,
+              segments,
+              totalLines: segments.length,
+              totalWords: segments.reduce((acc, s) => acc + s.text.split(/\s+/).filter(Boolean).length, 0),
+              plainText: segments.map(s => s.text).join(' '),
+              timestampedText: segments.map(s => `${s.timeStr} ${s.text}`).join('\n')
+            };
+          }
+        }
+      }
+    }
+  } catch (e) {}
+
+  // Tier 2: Try YoutubeTranscript with targetLang (fallback if InnerTube blocked)
+  if (targetLang && targetLang !== 'original' && targetLang !== 'default') {
     try {
       rawSegments = await YoutubeTranscript.fetchTranscript(videoId, { lang: targetLang });
       detectedLang = targetLang;
     } catch (e) {
-      // If requested language not directly found on video, fallback to default
+      // If requested language not directly found on video, fallback
     }
   }
 
-  // Tier 2: Try YoutubeTranscript default (native / auto-generated captions)
+  // Tier 3: Try YoutubeTranscript default
   if (!rawSegments || rawSegments.length === 0) {
     try {
       rawSegments = await YoutubeTranscript.fetchTranscript(videoId);
       if (rawSegments && rawSegments.length > 0 && rawSegments[0].lang) {
         detectedLang = rawSegments[0].lang;
-      }
-    } catch (e) {}
-  }
-
-  // Tier 3: InnerTube API with authentic Android User-Agent fallback
-  if (!rawSegments || rawSegments.length === 0) {
-    try {
-      const resp = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14)'
-        },
-        body: JSON.stringify({
-          context: { client: { clientName: 'ANDROID', clientVersion: '20.10.38' } },
-          videoId: videoId
-        })
-      });
-
-      if (resp.ok) {
-        const data = await resp.json();
-        const vDetails = data?.videoDetails || {};
-        if (vDetails.title) title = vDetails.title;
-        if (vDetails.author) author = vDetails.author;
-        const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
-
-        if (tracks.length > 0) {
-          let selectedTrack = tracks[0];
-          if (targetLang && targetLang !== 'original') {
-            const found = tracks.find(t => t.languageCode === targetLang);
-            if (found) selectedTrack = found;
-          }
-
-          const xmlResp = await fetch(selectedTrack.baseUrl, {
-            headers: { 'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14)' }
-          });
-          if (xmlResp.ok) {
-            const xml = await xmlResp.text();
-            let segments = parseTranscriptXml(xml);
-            let tierTranslated = false;
-            let tierTranslationFailed = false;
-
-            if (targetLang && targetLang !== 'original' && selectedTrack.languageCode !== targetLang && segments.length > 0) {
-              const tr = await translateSegments(segments, targetLang);
-              segments = tr.segments;
-              tierTranslated = tr.translated;
-              tierTranslationFailed = !tr.translated;
-            }
-
-            if (segments.length > 0) {
-              const lastSec = segments[segments.length - 1].end;
-              const durMin = Math.floor(lastSec / 60);
-              const durSec = (Math.floor(lastSec) % 60).toString().padStart(2, '0');
-
-              return {
-                videoId,
-                title,
-                author,
-                duration: `${durMin}:${durSec}`,
-                durationSeconds: Math.floor(lastSec),
-                thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-                hasCaptions: true,
-                tracks: tracks.map(t => ({
-                  lang: t.languageCode,
-                  name: t.name?.runs?.[0]?.text || t.languageCode,
-                  isAuto: !!t.kind && t.kind === 'asr'
-                })),
-                selectedTrack: selectedTrack.languageCode,
-                translated: tierTranslated,
-                translationFailed: tierTranslationFailed,
-                segments,
-                totalLines: segments.length,
-                totalWords: segments.reduce((acc, s) => acc + s.text.split(/\s+/).filter(Boolean).length, 0),
-                plainText: segments.map(s => s.text).join(' '),
-                timestampedText: segments.map(s => `${s.timeStr} ${s.text}`).join('\n')
-              };
-            }
-          }
-        }
       }
     } catch (e) {}
   }

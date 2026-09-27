@@ -45,12 +45,16 @@
       title: videoDetails.title || document.title,
       author: videoDetails.author || '',
       lengthSeconds: videoDetails.lengthSeconds || 0,
-      captionTracks: captionTracks.map(t => ({
+      audioTracks: captionsRenderer?.audioTracks || [],
+      defaultAudioTrackIndex: captionsRenderer?.defaultAudioTrackIndex ?? 0,
+      captionTracks: captionTracks.map((t, idx) => ({
+        index: idx,
         baseUrl: t.baseUrl,
         name: t.name?.simpleText || (t.name?.runs && t.name.runs[0]?.text) || t.languageCode || 'Track',
         languageCode: t.languageCode,
         vssId: t.vssId || '',
         kind: t.kind || '',
+        isAuto: t.kind === 'asr' || (typeof t.vssId === 'string' && t.vssId.startsWith('a.')),
         isTranslatable: t.isTranslatable ?? true
       })),
       translationLanguages: translationLanguages.map(l => ({

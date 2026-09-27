@@ -121,6 +121,62 @@ function extractCaptionTracks(html) {
   return null;
 }
 
+// Intelligently select best caption track (prioritizes Original/Manual over Auto-generated)
+function selectBestCaptionTrack(tracks, captionsRenderer = null, targetLang = null) {
+  if (!Array.isArray(tracks) || tracks.length === 0) return null;
+
+  const isManual = (t) => t && t.kind !== 'asr' && !(typeof t.vssId === 'string' && t.vssId.startsWith('a.'));
+  const isAsr = (t) => !isManual(t);
+
+  // If specific target language is requested (and not 'default' / 'original')
+  if (targetLang && targetLang !== 'default' && targetLang !== 'original') {
+    const langLower = targetLang.toLowerCase();
+    // 1. Manual track exact match
+    const manualExact = tracks.find(t => isManual(t) && t.languageCode?.toLowerCase() === langLower);
+    if (manualExact) return manualExact;
+
+    // 2. Manual track base language match (e.g. 'en' matches 'en-US')
+    const baseLang = langLower.split('-')[0];
+    const manualBase = tracks.find(t => isManual(t) && t.languageCode?.toLowerCase().split('-')[0] === baseLang);
+    if (manualBase) return manualBase;
+
+    // 3. ASR track exact match
+    const asrExact = tracks.find(t => isAsr(t) && t.languageCode?.toLowerCase() === langLower);
+    if (asrExact) return asrExact;
+
+    // 4. ASR track base language match
+    const asrBase = tracks.find(t => isAsr(t) && t.languageCode?.toLowerCase().split('-')[0] === baseLang);
+    if (asrBase) return asrBase;
+  }
+
+  // Original / Default selection:
+  const audioTracks = captionsRenderer?.audioTracks;
+  const defaultAudioIdx = captionsRenderer?.defaultAudioTrackIndex ?? 0;
+  const activeAudioTrack = (Array.isArray(audioTracks) && audioTracks[defaultAudioIdx]) || (audioTracks && audioTracks[0]);
+
+  // Priority 1: Check YouTube's official defaultCaptionTrackIndex
+  if (activeAudioTrack && typeof activeAudioTrack.defaultCaptionTrackIndex === 'number') {
+    const defTrack = tracks[activeAudioTrack.defaultCaptionTrackIndex];
+    if (defTrack) return defTrack;
+  }
+
+  // Priority 2: Check captionTrackIndices ranked by YouTube
+  if (activeAudioTrack && Array.isArray(activeAudioTrack.captionTrackIndices)) {
+    for (const idx of activeAudioTrack.captionTrackIndices) {
+      if (tracks[idx] && isManual(tracks[idx])) {
+        return tracks[idx];
+      }
+    }
+  }
+
+  // Priority 3: First manual / creator uploaded track in array
+  const firstManual = tracks.find(t => isManual(t));
+  if (firstManual) return firstManual;
+
+  // Priority 4: If only auto-generated (ASR) tracks exist, return the first one
+  return tracks[0];
+}
+
 // Background Multi-Tier Extractor (Local Server + Web Scrape + Authenticated InnerTube)
 async function fetchInnerTubeBackground(videoId, targetLang = null) {
   // Tier 1: Check Local Server API (lightning fast if studio running)
@@ -151,14 +207,11 @@ async function fetchInnerTubeBackground(videoId, targetLang = null) {
     if (resp.ok) {
       const data = await resp.json();
       const videoDetails = data?.videoDetails || {};
-      const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+      const renderer = data?.captions?.playerCaptionsTracklistRenderer;
+      const tracks = renderer?.captionTracks || [];
 
       if (Array.isArray(tracks) && tracks.length > 0) {
-        let selectedTrack = tracks[0];
-        if (targetLang && targetLang !== 'original') {
-          const found = tracks.find(t => t.languageCode === targetLang);
-          if (found) selectedTrack = found;
-        }
+        let selectedTrack = selectBestCaptionTrack(tracks, renderer, targetLang);
 
         const xmlResp = await fetch(selectedTrack.baseUrl, {
           headers: { 'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14)' }
@@ -168,7 +221,7 @@ async function fetchInnerTubeBackground(videoId, targetLang = null) {
           let segments = parseTranscriptXml(xml);
 
           let bgTranslated = false;
-          if (targetLang && targetLang !== 'original' && selectedTrack.languageCode !== targetLang && segments.length > 0) {
+          if (targetLang && targetLang !== 'original' && targetLang !== 'default' && selectedTrack.languageCode !== targetLang && segments.length > 0) {
             const tr = await translateSegmentsBackground(segments, targetLang);
             segments = tr.segments;
             bgTranslated = tr.translated;
@@ -182,10 +235,11 @@ async function fetchInnerTubeBackground(videoId, targetLang = null) {
               duration: formatDuration(videoDetails.lengthSeconds),
               thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
               hasCaptions: true,
-              tracks: tracks.map(t => ({
+              tracks: tracks.map((t, idx) => ({
+                index: idx,
                 lang: t.languageCode,
-                name: t.name?.runs?.[0]?.text || t.languageCode,
-                isAuto: !!t.kind && t.kind === 'asr'
+                name: t.name?.runs?.[0]?.text || t.name?.simpleText || t.languageCode,
+                isAuto: t.kind === 'asr' || (typeof t.vssId === 'string' && t.vssId.startsWith('a.'))
               })),
               selectedTrack: bgTranslated ? targetLang : selectedTrack.languageCode,
               translated: bgTranslated,
@@ -209,35 +263,34 @@ async function fetchInnerTubeBackground(videoId, targetLang = null) {
     if (pageResp.ok) {
       const html = await pageResp.text();
       const tracks = extractCaptionTracks(html);
-      if (tracks) {
-        if (Array.isArray(tracks) && tracks.length > 0) {
-          let selectedTrack = tracks[0];
-          if (targetLang && targetLang !== 'original') {
-            const match = tracks.find(t => t.languageCode === targetLang);
-            if (match) selectedTrack = match;
-          }
-          const trResp = await fetch(selectedTrack.baseUrl);
-          if (trResp.ok) {
-            const xml = await trResp.text();
-            let segments = parseTranscriptXml(xml);
-            if (segments.length > 0) {
-              return {
-                videoId,
-                title: `YouTube Video (${videoId})`,
-                author: '',
-                duration: '',
-                thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-                hasCaptions: true,
-                tracks: tracks.map(t => ({ lang: t.languageCode, name: t.name?.simpleText || t.languageCode })),
-                selectedTrack: selectedTrack.languageCode,
-                translated: false,
-                segments,
-                totalLines: segments.length,
-                totalWords: segments.reduce((acc, s) => acc + s.text.split(/\s+/).filter(Boolean).length, 0),
-                plainText: segments.map(s => s.text).join(' '),
-                timestampedText: segments.map(s => `${s.timeStr} ${s.text}`).join('\n')
-              };
-            }
+      if (tracks && Array.isArray(tracks) && tracks.length > 0) {
+        let selectedTrack = selectBestCaptionTrack(tracks, null, targetLang);
+        const trResp = await fetch(selectedTrack.baseUrl);
+        if (trResp.ok) {
+          const xml = await trResp.text();
+          let segments = parseTranscriptXml(xml);
+          if (segments.length > 0) {
+            return {
+              videoId,
+              title: `YouTube Video (${videoId})`,
+              author: '',
+              duration: '',
+              thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+              hasCaptions: true,
+              tracks: tracks.map((t, idx) => ({
+                index: idx,
+                lang: t.languageCode,
+                name: t.name?.simpleText || (t.name?.runs && t.name.runs[0]?.text) || t.languageCode,
+                isAuto: t.kind === 'asr' || (typeof t.vssId === 'string' && t.vssId.startsWith('a.'))
+              })),
+              selectedTrack: selectedTrack.languageCode,
+              translated: false,
+              segments,
+              totalLines: segments.length,
+              totalWords: segments.reduce((acc, s) => acc + s.text.split(/\s+/).filter(Boolean).length, 0),
+              plainText: segments.map(s => s.text).join(' '),
+              timestampedText: segments.map(s => `${s.timeStr} ${s.text}`).join('\n')
+            };
           }
         }
       }
